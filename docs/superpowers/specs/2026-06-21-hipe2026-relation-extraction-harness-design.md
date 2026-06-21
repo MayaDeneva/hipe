@@ -186,11 +186,18 @@ Features computed once per `(pair, featureset)` and cached to **parquet keyed by
 
 
 1. **Trivial baselines** — `majority`, `random` (scorer-parity sanity, leaderboard floor).
-2. **Classical ML** — LogReg / RandomForest / XGBoost / SVM over the feature store.
-3. **Transformer** — **entity-marker (R-BERT-style) XLM-R / mBERT**: insert special boundary tokens around the person and place mentions in the context and classify from those token positions (concatenated with `[CLS]`), with two heads (`at`, `isAt`). This entity-marker scheme — shared by R-BERT, Matching-the-Blanks, and LUKE — is the SOTA technique for relation *classification* on SemEval-2010/TACRED-style benchmarks and consistently beats plain `[CLS]` fine-tuning. Trained on Kaggle GPU.
+2. **Classical ML** — LogReg / RandomForest / XGBoost / SVM over the feature store, including a **multilingual sentence-embedding** feature family (sentence-transformer) so SVM/XGBoost get dense features alongside lexical/syntactic/contextual ones (validated competitive baseline per the RE literature).
+3. **Transformer (entity-marker, XLM-R / mBERT)** — insert special boundary tokens around the person and place mentions and classify from those token positions concatenated with `[CLS]`, two heads (`at`, `isAt`). The marker scheme and pooling are **config-selectable variants** of one `transformer.py`:
+   - **R-BERT** variant — boundary markers + averaged entity-span pooling + `[CLS]`.
+   - **Matching-the-Blanks (MTB)** variant — entity-start marker tokens, classify from those positions.
+   This entity-marker family is the SOTA technique for relation *classification* and beats plain `[CLS]` fine-tuning. Trained on Kaggle GPU. (English SemEval F1 numbers ~89 do not transfer to noisy multilingual historical text — the technique transfers, not the score.)
+3b. **mLUKE** — entity-aware self-attention model (multilingual LUKE) as a separate model name. Higher cost; benefits from entity-linked inputs (Wikidata QIDs), which we have only partially (many `null`), so expected lift is bounded. Lower priority.
 4. **LLM** — litellm few-shot / structured-output prompting (Ollama default, Claude fallback).
 5. **Ensembles** — voting + stacking over saved OOF/test predictions.
 6. **KG-enriched ablation** — classical ML + optional `features/kg.py`, to quantify (likely small) KG contribution.
+7. **Dependency-GCN ablation** — dependency-parse features / small GCN (A-GCN-style). Lowest priority: parses on OCR-noisy multilingual historical text are unreliable, so this is a final ablation, not a metric bet.
+
+**Recommended ROI order** (given "max the metric"): entity-marker XLM-R (R-BERT + MTB configs) → LLM (litellm) → classical ML + embeddings → ensembles → mLUKE → dependency-GCN. All are pluggable `RelationModel`s/feature families requiring **no harness changes** — every one lands its own leaderboard row, so nothing is lost regardless of order.
 
 ## 7. Error handling & reproducibility
 
