@@ -13,6 +13,8 @@ ISAT_LABELS = ["FALSE", "TRUE"]
 
 def norm_label(value, relation: str) -> str:
     """null/None -> FALSE; coerce to the relation's allowed set."""
+    if relation not in ("at", "isAt"):
+        raise ValueError(f"Unknown relation {relation!r}; expected 'at' or 'isAt'")
     allowed = AT_LABELS if relation == "at" else ISAT_LABELS
     if value is None:
         return "FALSE"

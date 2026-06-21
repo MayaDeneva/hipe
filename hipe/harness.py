@@ -9,7 +9,7 @@ from hipe.data.submission import write_submission
 from hipe.models import baselines  # noqa: F401  (registers majority/random)
 from hipe.models import registry
 from hipe.models.base import apply_consistency
-from hipe.eval.metrics import macro_recall
+from hipe.eval.scorer import score_files
 from hipe.runs import registry as runs
 
 
@@ -42,13 +42,10 @@ def run_experiment(config: dict, now: str, runs_root=None) -> dict:
     _write_subset(train_path, dev_docs, pred_dir / "dev_gold.jsonl")
     write_submission(pred_dir / "dev_gold.jsonl", preds, pred_dir / "dev.jsonl")
 
-    at_true = [p.gold_at for p in dev]
-    at_pred = [preds[(p.doc_id, pair_key(p))]["at"] for p in dev]
-    isat_true = [p.gold_isat for p in dev]
-    isat_pred = [preds[(p.doc_id, pair_key(p))]["isAt"] for p in dev]
-    at_recall = macro_recall(at_true, at_pred)
-    isat_recall = macro_recall(isat_true, isat_pred)
-    global_recall = (at_recall + isat_recall) / 2
+    metrics = score_files(pred_dir / "dev_gold.jsonl", pred_dir / "dev.jsonl")
+    at_recall = metrics["at"]["macro_recall"]
+    isat_recall = metrics["isAt"]["macro_recall"]
+    global_recall = metrics["global"]["macro_recall"]
 
     manifest = {"model": name, "config": config, "config_hash": cfg_hash,
                 "now": now, "at_recall": at_recall, "isAt_recall": isat_recall,
@@ -66,6 +63,10 @@ def run_experiment(config: dict, now: str, runs_root=None) -> dict:
 
 def _write_subset(src_path, keep_doc_ids, out_path):
     rows = [r for r in read_jsonl(src_path) if str(r["document_id"]) in keep_doc_ids]
+    for r in rows:
+        for sp in r.get("sampled_pairs", []):
+            sp["at"] = cfg.norm_label(sp.get("at"), "at")
+            sp["isAt"] = cfg.norm_label(sp.get("isAt"), "isAt")
     with Path(out_path).open("w", encoding="utf-8") as f:
         for r in rows:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")

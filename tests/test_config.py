@@ -18,3 +18,9 @@ def test_norm_label_uppercases_and_validates():
     # PROBABLE is not valid for isAt -> coerced to FALSE
     assert config.norm_label("PROBABLE", "isAt") == "FALSE"
     assert config.norm_label("garbage", "at") == "FALSE"
+
+
+def test_norm_label_rejects_unknown_relation():
+    import pytest
+    with pytest.raises(ValueError):
+        config.norm_label("TRUE", "AT")

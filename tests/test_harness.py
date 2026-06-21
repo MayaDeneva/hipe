@@ -42,3 +42,27 @@ def test_run_experiment_applies_consistency(tmp_path):
         for sp in r["sampled_pairs"]:
             if sp["isAt"] == "TRUE":
                 assert sp["at"] == "TRUE"
+
+
+def test_harness_leaderboard_matches_official_scorer_when_pred_class_absent_from_gold(tmp_path):
+    # A model that predicts PROBABLE (a class that may be absent from a gold slice)
+    # must yield the SAME global the official scorer would, not the in-house metric.
+    from hipe.models import registry
+    from hipe.models.base import RelationModel
+    from hipe.eval.scorer import score_files
+    from pathlib import Path
+
+    @registry.register("always_probable")
+    class AlwaysProbable(RelationModel):
+        name = "always_probable"
+        def fit(self, train, dev=None): pass
+        def predict(self, pairs):
+            return [{"at": "PROBABLE", "isAt": "FALSE"} for _ in pairs]
+
+    config = {"data": {"train": str(FIX), "dev_frac": 1.0, "seed": 0},
+              "model": {"name": "always_probable"}}
+    result = run_experiment(config, now="2026-06-21_120002", runs_root=tmp_path)
+    pred_dir = Path(result["run_dir"]) / "predictions"
+    official = score_files(pred_dir / "dev_gold.jsonl", pred_dir / "dev.jsonl")
+    assert round(result["global"], 6) == round(official["global"]["macro_recall"], 6)
+    assert round(result["at_recall"], 6) == round(official["at"]["macro_recall"], 6)

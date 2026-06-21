@@ -40,6 +40,8 @@ def pair_key(pair) -> str:
 
 def load_pairs(path) -> list[Pair]:
     pairs = []
+    # registry persists across documents; relies on entity IDs being globally unique
+    # (true for HIPE-2026: entity IDs are document-prefixed, so collisions cannot occur).
     registry: dict = {}
     for raw in read_jsonl(path):
         text = normalize_text(raw.get("text", ""))
