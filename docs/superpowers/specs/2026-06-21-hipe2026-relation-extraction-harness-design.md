@@ -40,6 +40,7 @@ For each `(person, place)` pair in a historical document, predict two relations:
 | Consistency rule | `isAt == TRUE ⇒ at = TRUE` | Logical: present-in-context implies was-there; applied post-prediction to all models |
 | KG enrichment | Optional, off-by-default feature family | Empirically adds little (observed in prior `bz` project); keep only as an ablation |
 | Reuse | Port `data/`, `enrich/`, `linking/`, `eval/metrics.py` from `bz/hipe2026` | Clean, already macro-recall-aware |
+| Data acquisition | `scripts/fetch_data.py` — clone/pull the public `hipe-eval/HIPE-2026-data` repo into `data/raw/`, pinned to a release/commit | Simpler and more transparent than a git submodule (mirrors how `bz` did a manual clone) |
 
 ## 4. Repository layout
 
@@ -95,7 +96,9 @@ kaggle/
   export_job.py            # package code+config+data+requirements for a GPU notebook
   ingest.py                # pull weights/predictions/metrics into a runs/ folder
   notebook_template.ipynb  # trains transformer, writes artifacts
-data/                      # raw HIPE data (git submodule) + cache/
+scripts/
+  fetch_data.py            # clone/pull hipe-eval/HIPE-2026-data into data/raw/ (pinned commit/tag)
+data/                      # raw HIPE data (downloaded, gitignored) + cache/
 tests/
 ```
 
@@ -211,7 +214,7 @@ Features computed once per `(pair, featureset)` and cached to **parquet keyed by
 
 ## 10. First milestones
 
-1. Port `data/`, `eval/metrics.py`; wrap official scorer; wire the run registry + `leaderboard.csv`.
+1. `scripts/fetch_data.py` (pinned clone/pull); port `data/`, `eval/metrics.py`; wrap official scorer; wire the run registry + `leaderboard.csv`.
 2. `majority`/`random` baselines green end-to-end with scorer parity.
 3. Feature store + XGBoost over lexical/syntactic/contextual features → first real leaderboard rows.
 4. Transformer via Kaggle bridge; LLM via litellm.
