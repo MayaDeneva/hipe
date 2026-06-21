@@ -8,3 +8,7 @@ runs/**/model.pkl
 runs/**/predictions/
 runs/**/oof.parquet
 runs/**/*.log
+runs/**/manifest.json
+runs/**/*.pkl
+!runs/leaderboard.csv
+*.egg-info/
