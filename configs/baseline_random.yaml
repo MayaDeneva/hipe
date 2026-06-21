@@ -1,0 +1,7 @@
+data:
+  train: data/raw/HIPE-2026-data/data/sandbox/en-train.jsonl
+  dev_frac: 0.2
+  seed: 0
+model:
+  name: random
+  seed: 0
