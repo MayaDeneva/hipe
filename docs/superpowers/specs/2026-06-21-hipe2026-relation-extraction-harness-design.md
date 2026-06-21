@@ -157,6 +157,16 @@ Deterministic, identical for every approach:
 8. Append one row to **`leaderboard.csv`** (committed): `run_id, timestamp, model, config_hash, data_version, at_recall, isAt_recall, global, size_mb, infer_ms, git_sha, notes`.
 9. **Idempotent**: same `config_hash` short-circuits unless `--force` — nothing silently overwritten.
 
+### 5.4b Preprocessing & OCR-noise handling
+
+Lightweight and **shared**, not heavy correction — the pairs are given, so the priority is reliably locating mentions, not cleaning every word (aggressive correction risks breaking mention matching for little gain). Three tiers:
+
+1. **Shared conservative normalization** (data pipeline, every model sees it): Unicode NFC, de-hyphenate line-break splits (`exam-\nple` → `example`), strip soft hyphens, long-s/ligature fixes (`ſ` → `s`), collapse whitespace/newlines. No word-rewriting.
+2. **Fuzzy mention location** for context windowing via **RapidFuzz** — plain `text.find(mention)` misses on OCR-garbled surfaces, so we normalize → fuzzy-locate mentions → window. Character offsets are never an issue (mentions are re-found after normalization).
+3. **Per-consumer processing** (not global): classical ML gets spaCy per-language tokenize/lemmatize/lowercase; transformers & LLMs get the near-raw normalized text (subword/LLM tokenizers handle noise well; over-cleaning hurts them).
+
+**Deliberately out of the main path:** a dedicated OCR-correction (seq2seq post-correction) model — high effort, risky, low expected ROI; revisit only if confusion-matrix analysis shows OCR dominates errors. **Optional feature:** an OCR-noisiness score (fraction of out-of-vocabulary tokens) for the classical models.
+
 ### 5.5 Feature store
 
 Features computed once per `(pair, featureset)` and cached to **parquet keyed by content-hash**. Families (from the proposal): **lexical**, **syntactic**, **contextual**, **kg** (optional). sklearn + ensemble models read the store; transformer/LLM use raw context but may append KG features when explicitly enabled.
@@ -231,10 +241,17 @@ Each commit run is also a frozen, browsable Kaggle **Notebook Version** (Output 
 - Notebook-per-approach as the backbone (a single Kaggle training notebook is ingested into the registry instead).
 - Reliance on KG enrichment in the main path.
 
-## 10. First milestones
+## 10. Chronological build order
 
-1. `scripts/fetch_data.py` (pinned clone/pull); port `data/`, `eval/metrics.py`; wrap official scorer; wire the run registry + `leaderboard.csv`.
-2. `majority`/`random` baselines green end-to-end with scorer parity.
-3. Feature store + XGBoost over lexical/syntactic/contextual features → first real leaderboard rows.
-4. Transformer via Kaggle bridge; LLM via litellm.
-5. Voting + stacking ensembles.
+Not strict "strongest model first" — steps 0–2 are local/cheap and validate the whole pipeline before any GPU spend; steps 3+ spend Kaggle hours and start only once the harness is proven. Each step adds a leaderboard row.
+
+| # | Step | Where | Why here |
+|---|------|-------|----------|
+| 0 | Harness + `fetch_data.py` + shared preprocessing + scorer parity + `majority`/`random` baselines | Mac | Proves data → predict → official-score → leaderboard end-to-end; sets the floor. |
+| 1 | Classical ML (XGBoost/LogReg over lexical+syntactic+contextual) | Mac CPU | Fastest real number; validates feature store, doc-grouped split, submission format. No GPU. |
+| 2 | LLM prompting (Ollama via litellm, few-shot) | Mac/Ollama | Cheap strong zero-shot baseline; validates the `llm/client.py` path. |
+| 3 | Entity-marker XLM-R (R-BERT config, then MTB) | Kaggle GPU | Efficient workhorse + likely best efficiency-aware model; validates the Kaggle bridge. |
+| 4 | Ensembles (voting, then stacking) over base models' OOF preds | Mac | Needs ≥2–3 base models first; usually a free metric bump. |
+| 5 | Add sentence-embedding features to classical ML | Mac CPU | Cheap boost; strengthens stacking inputs. |
+| 6 | QLoRA LLM fine-tune | Kaggle GPU | Strongest raw macro-recall + best on `literaryworks` generalization set; heavy, so later. |
+| 7 | mLUKE, then dependency-GCN + KG-feature ablations | Kaggle/Mac | Lower-confidence/higher-effort; run last as ablations for the report. |
