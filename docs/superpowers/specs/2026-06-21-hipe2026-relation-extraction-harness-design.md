@@ -176,6 +176,14 @@ Features computed once per `(pair, featureset)` and cached to **parquet keyed by
 - `export_job` packages {code, config, train data, requirements} for a GPU notebook (`notebook_template.ipynb`) that trains the transformer (XLM-R/mBERT full fine-tune) **or** a QLoRA adapter on a decoder LLM, and writes `weights/` (or a small LoRA `adapter/`) `+ predictions.jsonl + metrics.json`.
 - `ingest` pulls those into a normal `runs/` folder — a Kaggle-trained transformer is **indistinguishable** from a local run in the leaderboard.
 
+**Kaggle execution — fully automated via the Kaggle API (no GUI clicks):**
+
+1. `export_job` (local) bundles the code+config+data and pushes it as a private Kaggle **Dataset**, then writes a `kernel-metadata.json` with `enable_gpu: true`, `enable_internet: true`, `is_private: true`, and `dataset_sources` pointing at that bundle.
+2. `kaggle kernels push` **both uploads and triggers a headless "Save & Run All (Commit)" run** on GPU with those toggles already set — internet is required for `pip install` and HuggingFace base-model/adapter downloads.
+3. `ingest` polls `kaggle kernels status` until `complete`, then `kaggle kernels output` downloads `predictions.jsonl` / `metrics.json` / `adapter/` into `runs/<...>/` and appends the leaderboard row.
+
+Each commit run is also a frozen, browsable Kaggle **Notebook Version** (Output tab + logs in the GUI), reinforcing "nothing lost". **Prerequisites (one-time):** a Kaggle API token at `~/.kaggle/kaggle.json` and a **phone-verified** Kaggle account (Kaggle requires verification before any notebook can enable GPU or Internet). **Limits:** GPU quota ≈ 30 h/week, max session ~9 h on GPU — a 7B QLoRA fine-tune fits in one run.
+
 ### 5.9 Ensembles as tracked runs
 
 `voting` and `stacking` are `RelationModel`s that consume **other runs' OOF/test predictions by `run_id`**. "ML + Transformer → meta-LogReg" (stacking) and majority voting are themselves `hipe run` invocations with their own leaderboard rows.
