@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hipe"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "scikit-learn>=1.4",
+    "rapidfuzz>=3.6",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+hipe = "hipe.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["hipe*"]
