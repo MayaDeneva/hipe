@@ -182,9 +182,12 @@ Features computed once per `(pair, featureset)` and cached to **parquet keyed by
 
 ## 6. Approaches (all behind the one interface)
 
+**Framing vs. the RE literature** (per nlpprogress.com/relationship_extraction): this is **relation *classification*** — entities are given, we label the pair — not joint entity-relation extraction. So the joint encoder-decoder / RL methods (WDec, HRLRE on NYT/DocRED) are out of scope. The directly-relevant SOTA is the **entity-marker BERT family** (R-BERT, Matching-the-Blanks, LUKE) used in approach 3. Dependency-parse methods (A-GCN, SDP-LSTM) are deprioritized: parsing OCR-noisy multilingual historical text is unreliable; dependency features stay an optional `features/syntactic.py` extra. Classical SVM/gradient-boosting with embeddings is a validated competitive baseline (approach 2).
+
+
 1. **Trivial baselines** — `majority`, `random` (scorer-parity sanity, leaderboard floor).
 2. **Classical ML** — LogReg / RandomForest / XGBoost / SVM over the feature store.
-3. **Transformer** — XLM-R / mBERT fine-tuned on `(person, place, context)` → `at` and `isAt` heads, trained on Kaggle GPU.
+3. **Transformer** — **entity-marker (R-BERT-style) XLM-R / mBERT**: insert special boundary tokens around the person and place mentions in the context and classify from those token positions (concatenated with `[CLS]`), with two heads (`at`, `isAt`). This entity-marker scheme — shared by R-BERT, Matching-the-Blanks, and LUKE — is the SOTA technique for relation *classification* on SemEval-2010/TACRED-style benchmarks and consistently beats plain `[CLS]` fine-tuning. Trained on Kaggle GPU.
 4. **LLM** — litellm few-shot / structured-output prompting (Ollama default, Claude fallback).
 5. **Ensembles** — voting + stacking over saved OOF/test predictions.
 6. **KG-enriched ablation** — classical ML + optional `features/kg.py`, to quantify (likely small) KG contribution.
