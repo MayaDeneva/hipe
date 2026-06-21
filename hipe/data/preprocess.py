@@ -19,7 +19,7 @@ def normalize_text(text: str) -> str:
     return text.strip()
 
 
-def fuzzy_find(text: str, mention: str, min_score: float = 75.0):
+def fuzzy_find(text: str, mention: str, min_score: float = 75.0) -> tuple[int, int] | None:
     """Return (start, end) of the best match for `mention` in `text`, or None."""
     if not text or not mention:
         return None
@@ -27,6 +27,8 @@ def fuzzy_find(text: str, mention: str, min_score: float = 75.0):
     if idx >= 0:
         return (idx, idx + len(mention))
     m = len(mention)
+    if len(text) < m:
+        return None
     ml = mention.lower()
     best_span = None
     best_score = -1

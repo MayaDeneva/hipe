@@ -24,3 +24,7 @@ def test_fuzzy_find_handles_ocr_noise():
 
 def test_fuzzy_find_returns_none_below_threshold():
     assert fuzzy_find("totally unrelated words", "Rappahannock") is None
+
+
+def test_fuzzy_find_mention_longer_than_text():
+    assert fuzzy_find("hi", "Rappahannock") is None
