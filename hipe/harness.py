@@ -1,6 +1,8 @@
 # hipe/harness.py
+import json
 from pathlib import Path
 from hipe import config as cfg
+from hipe.data.load import read_jsonl
 from hipe.data.pairs import load_pairs, pair_key
 from hipe.data.split import split_by_document
 from hipe.data.submission import write_submission
@@ -8,7 +10,6 @@ from hipe.models import baselines  # noqa: F401  (registers majority/random)
 from hipe.models import registry
 from hipe.models.base import apply_consistency
 from hipe.eval.metrics import macro_recall
-from hipe.eval.scorer import score_files
 from hipe.runs import registry as runs
 
 
@@ -64,8 +65,6 @@ def run_experiment(config: dict, now: str, runs_root=None) -> dict:
 
 
 def _write_subset(src_path, keep_doc_ids, out_path):
-    import json
-    from hipe.data.load import read_jsonl
     rows = [r for r in read_jsonl(src_path) if str(r["document_id"]) in keep_doc_ids]
     with Path(out_path).open("w", encoding="utf-8") as f:
         for r in rows:
