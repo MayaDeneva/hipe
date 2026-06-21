@@ -173,7 +173,7 @@ Features computed once per `(pair, featureset)` and cached to **parquet keyed by
 
 ### 5.8 Kaggle bridge
 
-- `export_job` packages {code, config, train data, requirements} for a GPU notebook (`notebook_template.ipynb`) that trains XLM-R/mBERT and writes `weights/ + predictions.jsonl + metrics.json`.
+- `export_job` packages {code, config, train data, requirements} for a GPU notebook (`notebook_template.ipynb`) that trains the transformer (XLM-R/mBERT full fine-tune) **or** a QLoRA adapter on a decoder LLM, and writes `weights/` (or a small LoRA `adapter/`) `+ predictions.jsonl + metrics.json`.
 - `ingest` pulls those into a normal `runs/` folder — a Kaggle-trained transformer is **indistinguishable** from a local run in the leaderboard.
 
 ### 5.9 Ensembles as tracked runs
@@ -192,12 +192,13 @@ Features computed once per `(pair, featureset)` and cached to **parquet keyed by
    - **Matching-the-Blanks (MTB)** variant — entity-start marker tokens, classify from those positions.
    This entity-marker family is the SOTA technique for relation *classification* and beats plain `[CLS]` fine-tuning. Trained on Kaggle GPU. (English SemEval F1 numbers ~89 do not transfer to noisy multilingual historical text — the technique transfers, not the score.)
 3b. **mLUKE** — entity-aware self-attention model (multilingual LUKE) as a separate model name. Higher cost; benefits from entity-linked inputs (Wikidata QIDs), which we have only partially (many `null`), so expected lift is bounded. Lower priority.
-4. **LLM** — litellm few-shot / structured-output prompting (Ollama default, Claude fallback).
+4. **LLM (prompting)** — litellm few-shot / structured-output prompting (Ollama default, Claude fallback). No training.
+4b. **LLM fine-tuning (QLoRA)** — `models/llm_lora.py`: 4-bit QLoRA SFT of a multilingual decoder base (e.g. Qwen2.5-7B / Llama-3.1-8B / Gemma-2-9B / Mistral-7B) on Kaggle GPU, target = structured `at`/`isAt` labels, optionally distilling the dataset's `at_explanation` / `isAt_explanation` as rationales (supervision an encoder cannot use). The trained artifact is a small LoRA **adapter** ingested via the Kaggle bridge. **Inference** serves the adapter behind an OpenAI-compatible endpoint (vLLM / llama.cpp / Ollama) that the *same* litellm `llm/client.py` targets — no harness changes. Expected to be the strongest model on the `literaryworks` generalization set (Set B) and a high-accuracy ensemble member. **Efficiency caveat:** ~15–30× larger/slower than entity-marker XLM-R, which the competition's efficiency scoring penalizes — so it is the "best raw macro-recall / generalization" entry, with XLM-R as the efficient entry; the harness lets us submit and compare both.
 5. **Ensembles** — voting + stacking over saved OOF/test predictions.
 6. **KG-enriched ablation** — classical ML + optional `features/kg.py`, to quantify (likely small) KG contribution.
 7. **Dependency-GCN ablation** — dependency-parse features / small GCN (A-GCN-style). Lowest priority: parses on OCR-noisy multilingual historical text are unreliable, so this is a final ablation, not a metric bet.
 
-**Recommended ROI order** (given "max the metric"): entity-marker XLM-R (R-BERT + MTB configs) → LLM (litellm) → classical ML + embeddings → ensembles → mLUKE → dependency-GCN. All are pluggable `RelationModel`s/feature families requiring **no harness changes** — every one lands its own leaderboard row, so nothing is lost regardless of order.
+**Recommended ROI order** (given "max the metric"): entity-marker XLM-R (R-BERT + MTB configs) → LLM prompting (litellm) → classical ML + embeddings → ensembles → LLM QLoRA fine-tune → mLUKE → dependency-GCN. All are pluggable `RelationModel`s/feature families requiring **no harness changes** — every one lands its own leaderboard row, so nothing is lost regardless of order.
 
 ## 7. Error handling & reproducibility
 
