@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+data/raw/
+data/cache/
+runs/**/model.pkl
+runs/**/predictions/
+runs/**/oof.parquet
+runs/**/*.log
