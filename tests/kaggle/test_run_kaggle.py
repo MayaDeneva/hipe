@@ -39,3 +39,17 @@ def test_run_kaggle_raises_on_kernel_error(tmp_path, monkeypatch):
                           runs_root=tmp_path / "runs",
                           staging_dir=tmp_path / "stage",
                           poll_interval=0, sleep=lambda s: None)
+
+
+def test_run_kaggle_raises_on_timeout(tmp_path, monkeypatch):
+    import pytest
+    monkeypatch.setattr(bridge.export, "stage_job",
+                        lambda c, s, r: {"code": "C", "kernel": "K",
+                                         "kernel_id": "alice/x"})
+    monkeypatch.setattr(bridge, "push_dataset", lambda d: None)
+    monkeypatch.setattr(bridge, "push_kernel", lambda d: None)
+    monkeypatch.setattr(bridge, "kernel_status", lambda kid: "running")  # never completes
+    with pytest.raises(TimeoutError):
+        bridge.run_kaggle("configs/xlmr.yaml", repo_root=tmp_path,
+                          runs_root=tmp_path / "runs", staging_dir=tmp_path / "stage",
+                          poll_interval=0, max_polls=2, sleep=lambda s: None)
