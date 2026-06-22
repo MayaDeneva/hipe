@@ -29,9 +29,21 @@ def _class_weights(labels, label_list):
 
 
 def _build_module(model_name, n_at, n_isat, vocab_size, dropout):
-    """Shared encoder + two linear heads over the [CLS] representation."""
+    """Shared encoder + two RoBERTa-style classification heads over [CLS]."""
+    import torch
     import torch.nn as nn
     from transformers import AutoModel
+
+    class _Head(nn.Module):
+        def __init__(self, h, n):
+            super().__init__()
+            self.dense = nn.Linear(h, h)
+            self.dropout = nn.Dropout(dropout)
+            self.out = nn.Linear(h, n)
+
+        def forward(self, x):
+            x = torch.tanh(self.dense(self.dropout(x)))
+            return self.out(self.dropout(x))
 
     class _MultiTaskXLMR(nn.Module):
         def __init__(self):
@@ -39,14 +51,13 @@ def _build_module(model_name, n_at, n_isat, vocab_size, dropout):
             self.encoder = AutoModel.from_pretrained(model_name)
             self.encoder.resize_token_embeddings(vocab_size)
             h = self.encoder.config.hidden_size
-            self.dropout = nn.Dropout(dropout)
-            self.at_head = nn.Linear(h, n_at)
-            self.isat_head = nn.Linear(h, n_isat)
+            self.at_head = _Head(h, n_at)
+            self.isat_head = _Head(h, n_isat)
 
         def forward(self, input_ids, attention_mask):
             out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
-            pooled = self.dropout(out.last_hidden_state[:, 0])   # [CLS]
-            return self.at_head(pooled), self.isat_head(pooled)
+            cls = out.last_hidden_state[:, 0]                    # [CLS]
+            return self.at_head(cls), self.isat_head(cls)
 
     return _MultiTaskXLMR()
 
@@ -135,6 +146,10 @@ class XLMRModel(RelationModel):
         loader = DataLoader(_DS(), batch_size=self.batch_size, shuffle=True,
                             collate_fn=collate)
         opt = torch.optim.AdamW(self.module.parameters(), lr=self.lr)
+        from transformers import get_linear_schedule_with_warmup
+        total_steps = max(1, len(loader) * self.epochs)
+        sched = get_linear_schedule_with_warmup(
+            opt, int(0.1 * total_steps), total_steps)   # 10% LR warmup, then decay
         ce = torch.nn.functional.cross_entropy
 
         best_global, best_state, bad = -1.0, None, 0
@@ -148,7 +163,9 @@ class XLMRModel(RelationModel):
                 at_log, isat_log = self.module(ids, mask)
                 loss = ce(at_log, at, weight=at_w) + ce(isat_log, isat, weight=isat_w)
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.module.parameters(), 1.0)
                 opt.step()
+                sched.step()
             if va:
                 tr_g = self._eval_global(tr_sample)
                 va_g = self._eval_global(va)
