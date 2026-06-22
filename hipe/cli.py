@@ -32,6 +32,17 @@ def _cmd_score(args) -> int:
     return 0
 
 
+def _cmd_kaggle_run(args) -> int:
+    import tempfile
+    from hipe.kaggle.bridge import run_kaggle
+    staging = tempfile.mkdtemp(prefix="hipe_kaggle_")
+    result = run_kaggle(args.config, repo_root=cfg.ROOT, runs_root=_runs_root(),
+                        staging_dir=staging)
+    print(f"kernel: {result['kernel_id']}")
+    print(f"ingested runs: {result['runs']}")
+    return 0
+
+
 def _cmd_leaderboard(args) -> int:
     path = _runs_root() / "leaderboard.csv"
     if path.exists():
@@ -57,5 +68,14 @@ def main(argv=None) -> int:
     p_lb = sub.add_parser("leaderboard", help="print the leaderboard")
     p_lb.set_defaults(func=_cmd_leaderboard)
 
+    p_kaggle = sub.add_parser("kaggle-run",
+                              help="run a config on Kaggle GPU and ingest results")
+    p_kaggle.add_argument("config")
+    p_kaggle.set_defaults(func=_cmd_kaggle_run)
+
     args = parser.parse_args(argv)
     return args.func(args)
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())

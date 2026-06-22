@@ -20,3 +20,16 @@ hipe score <gold.jsonl> <pred.jsonl>      # official-parity score of a file
 
 Each run writes a folder under `runs/` (config, predictions, metrics) and appends
 one row to the committed `runs/leaderboard.csv` — nothing is lost.
+
+## Run on Kaggle GPU (automated)
+
+Requires a phone-verified Kaggle account and `~/.kaggle/kaggle.json`, plus `pip install -e ".[kaggle]"`.
+
+```bash
+hipe kaggle-run configs/xlmr.yaml   # packages code -> Kaggle dataset -> GPU kernel -> ingests results
+hipe leaderboard                    # the xlmr row, trained on Kaggle, appears here
+```
+
+It pushes the code as a private dataset, runs a GPU+internet kernel that clones the
+HIPE data and runs `hipe run`, polls to completion, and merges the run folder +
+leaderboard row into local `runs/`.
