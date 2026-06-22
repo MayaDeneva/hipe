@@ -14,11 +14,16 @@ def test_marker_tokens():
 
 def test_marks_both_mentions_in_place():
     p = _pair("Joe was at Essex.", ["Joe"], ["Essex"])
-    assert marked_text(p) == "[E1]Joe[/E1] was at [E2]Essex[/E2]."
+    assert marked_text(p) == "[E1] Joe [/E1] was at [E2] Essex [/E2]."
 
 
 def test_fallback_prepends_when_not_found():
     p = _pair("nothing relevant here", ["Zzz"], ["Qqq"])
     out = marked_text(p)
-    assert out.startswith("[E1]Zzz[/E1] [E2]Qqq[/E2] ")
+    assert out.startswith("[E1] Zzz [/E1] [E2] Qqq [/E2] ")
     assert out.endswith("nothing relevant here")
+
+
+def test_typed_scheme_injects_readable_type_word():
+    p = _pair("Joe was at Essex.", ["Joe"], ["Essex"])
+    assert marked_text(p, "typed") == "[E1] person Joe [/E1] was at [E2] location Essex [/E2]."
