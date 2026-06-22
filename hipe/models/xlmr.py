@@ -101,7 +101,7 @@ class XLMRModel(RelationModel):
 
     def __init__(self, model_name="xlm-roberta-base", epochs=8, batch_size=16,
                  lr=2e-5, max_length=192, dropout=0.1, weight_decay=0.01,
-                 marker_scheme="plain", add_date=False,
+                 marker_scheme="plain", add_date=False, add_kb=False,
                  val_frac=0.15, patience=2, max_train=None, seed=0):
         self.model_name = model_name
         self.epochs = epochs
@@ -112,6 +112,7 @@ class XLMRModel(RelationModel):
         self.weight_decay = weight_decay
         self.marker_scheme = marker_scheme
         self.add_date = add_date
+        self.add_kb = add_kb
         self.val_frac = val_frac
         self.patience = patience
         self.max_train = max_train
@@ -138,7 +139,7 @@ class XLMRModel(RelationModel):
 
         at2id = {l: i for i, l in enumerate(cfg.AT_LABELS)}
         isat2id = {l: i for i, l in enumerate(cfg.ISAT_LABELS)}
-        texts = [marked_text(p, self.marker_scheme, self.add_date) for p in tr]
+        texts = [marked_text(p, self.marker_scheme, self.add_date, self.add_kb) for p in tr]
         at_y = [at2id[p.gold_at] for p in tr]
         isat_y = [isat2id[p.gold_isat] for p in tr]
 
@@ -252,7 +253,7 @@ class XLMRModel(RelationModel):
     def _eval_global(self, pairs):
         from hipe.eval.metrics import macro_recall
         from hipe.models.base import apply_consistency
-        at_p, is_p = self._infer([marked_text(p, self.marker_scheme, self.add_date)
+        at_p, is_p = self._infer([marked_text(p, self.marker_scheme, self.add_date, self.add_kb)
                                   for p in pairs])
         at_pred, is_pred = [], []
         for a, s in zip(at_p, is_p):
@@ -266,7 +267,7 @@ class XLMRModel(RelationModel):
         return (macro_recall(at_t, at_pred) + macro_recall(is_t, is_pred)) / 2
 
     def predict(self, pairs):
-        at_p, is_p = self._infer([marked_text(p, self.marker_scheme, self.add_date)
+        at_p, is_p = self._infer([marked_text(p, self.marker_scheme, self.add_date, self.add_kb)
                                   for p in pairs])
         out = []
         for a, s in zip(at_p, is_p):

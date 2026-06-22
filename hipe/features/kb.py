@@ -124,3 +124,47 @@ def kb_features(pair) -> dict:
     f["kb_near_100"] = int(dist <= 100)
     f["kb_near_500"] = int(dist <= 500)
     return f
+
+
+# ---- entity glosses (description + type) for KGPool-style text injection ----
+GLOSS_PATH = cfg.ROOT / "data" / "kb" / "glosses.json"
+_glosses = None
+
+
+def load_glosses():
+    global _glosses
+    if _glosses is None:
+        _glosses = json.load(open(GLOSS_PATH)) if GLOSS_PATH.exists() else {}
+    return _glosses
+
+
+def fetch_glosses(qids, max_len=60):
+    """Wikidata English description (+ instance-of fallback) per QID -> glosses.json.
+    A short gloss like 'French military leader' that we inject as text so the
+    transformer's attention can use (or ignore) the KG fact."""
+    g = load_glosses()
+    todo = [q for q in qids if q and q not in g]
+    for i in range(0, len(todo), 50):
+        batch = todo[i:i + 50]
+        vals = " ".join("wd:" + q for q in batch)
+        rows = _sparql("SELECT ?e ?desc ?typeLabel WHERE { VALUES ?e { %s } "
+                       "OPTIONAL { ?e schema:description ?desc . FILTER(LANG(?desc)='en') } "
+                       "OPTIONAL { ?e wdt:P31 ?t . ?t rdfs:label ?typeLabel . "
+                       "FILTER(LANG(?typeLabel)='en') } }" % vals)
+        agg = {q: {"desc": None, "types": []} for q in batch}
+        for b in rows:
+            e = b["e"]["value"].split("/")[-1]
+            if e not in agg:
+                continue
+            if "desc" in b and not agg[e]["desc"]:
+                agg[e]["desc"] = b["desc"]["value"]
+            if "typeLabel" in b:
+                t = b["typeLabel"]["value"]
+                if t not in agg[e]["types"]:
+                    agg[e]["types"].append(t)
+        for q, a in agg.items():
+            gl = a["desc"] or (", ".join(a["types"][:2]) if a["types"] else "")
+            g[q] = gl[:max_len]
+        GLOSS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        json.dump(g, open(GLOSS_PATH, "w"), ensure_ascii=False)
+    return g

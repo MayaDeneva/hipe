@@ -60,33 +60,45 @@ def _locate(text, mentions):
     return None
 
 
-def _wrap(markers, type_word, entity_text, mask):
+def _wrap(markers, type_word, entity_text, mask, gloss=""):
     st, en = markers
     parts = [p for p in (type_word, "" if mask else entity_text) if p]
-    return f"{st} {' '.join(parts)} {en}"
+    inner = " ".join(parts)
+    if gloss:
+        inner = f"{inner} ( {gloss} )"          # KGPool-style KG fact, attention selects
+    return f"{st} {inner} {en}"
 
 
-def marked_text(pair, scheme="plain", add_date=False) -> str:
+def _gloss_for(entity, add_kb):
+    if not add_kb or not entity.qid:
+        return ""
+    from hipe.features.kb import load_glosses
+    return load_glosses().get(entity.qid, "")
+
+
+def marked_text(pair, scheme="plain", add_date=False, add_kb=False) -> str:
     """Context with the two entities wrapped in [E1]/[E2]; `typed` schemes inject
-    a readable type word, optionally masking the entity string. Optional [DATE]
-    <year> prefix so the model can reason about 'now' for isAt."""
+    a readable type word, optionally masking the entity string. add_kb injects the
+    entity's Wikidata gloss as text. Optional [DATE] <year> prefix for isAt."""
     use_type, mask = SCHEMES[scheme]
     lang = pair.language
     ptw = _type_word("person", lang) if use_type else ""
     ltw = _type_word("place", lang) if use_type else ""
+    pgl = _gloss_for(pair.person, add_kb)
+    lgl = _gloss_for(pair.place, add_kb)
     text = pair.context
     pspan = _locate(text, pair.person.mentions)
     lspan = _locate(text, pair.place.mentions)
     if pspan is not None and lspan is not None and not _overlap(pspan, lspan):
-        for span, mark, tw in sorted(
-                [(pspan, PERSON_MARK, ptw), (lspan, PLACE_MARK, ltw)],
+        for span, mark, tw, gl in sorted(
+                [(pspan, PERSON_MARK, ptw, pgl), (lspan, PLACE_MARK, ltw, lgl)],
                 key=lambda x: x[0][0], reverse=True):
             s, e = span
-            text = text[:s] + _wrap(mark, tw, text[s:e], mask) + text[e:]
+            text = text[:s] + _wrap(mark, tw, text[s:e], mask, gl) + text[e:]
         out = text
     else:
-        out = (f"{_wrap(PERSON_MARK, ptw, pair.person.surface, mask)} "
-               f"{_wrap(PLACE_MARK, ltw, pair.place.surface, mask)} {text}")
+        out = (f"{_wrap(PERSON_MARK, ptw, pair.person.surface, mask, pgl)} "
+               f"{_wrap(PLACE_MARK, ltw, pair.place.surface, mask, lgl)} {text}")
     if add_date:
         y = year_of(pair.pub_date)
         if y is not None:
