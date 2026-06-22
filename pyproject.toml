@@ -19,6 +19,7 @@ ml = [
     "transformers>=4.40",
     "accelerate>=0.30",
 ]
+kaggle = ["kaggle>=1.6"]
 
 [project.scripts]
 hipe = "hipe.cli:main"
