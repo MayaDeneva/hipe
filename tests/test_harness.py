@@ -44,6 +44,58 @@ def test_run_experiment_applies_consistency(tmp_path):
                 assert sp["at"] == "TRUE"
 
 
+def test_harness_consistency_soft_default_preserves_probable(tmp_path):
+    # Harness defaults to soft mode: PROBABLE is preserved when isAt==TRUE
+    from hipe.models import registry
+    from hipe.models.base import RelationModel
+    from hipe.data.load import read_jsonl
+
+    @registry.register("probable_isat_true_soft")
+    class ProbableIsatTrue(RelationModel):
+        name = "probable_isat_true_soft"
+        def fit(self, train, dev=None): pass
+        def predict(self, pairs):
+            return [{"at": "PROBABLE", "isAt": "TRUE"} for _ in pairs]
+
+    # No "consistency" key in config — should default to soft
+    config = {"data": {"train": str(FIX), "dev_frac": 1.0, "seed": 0},
+              "model": {"name": "probable_isat_true_soft"}}
+    result = run_experiment(config, now="2026-06-22_soft001", runs_root=tmp_path)
+    rows = read_jsonl(Path(result["run_dir"]) / "predictions" / "dev.jsonl")
+    for r in rows:
+        for sp in r["sampled_pairs"]:
+            if sp["isAt"] == "TRUE":
+                assert sp["at"] == "PROBABLE", (
+                    f"soft mode should preserve PROBABLE; got {sp['at']}"
+                )
+
+
+def test_harness_consistency_hard_forces_true(tmp_path):
+    # With consistency=hard, PROBABLE is forced to TRUE when isAt==TRUE
+    from hipe.models import registry
+    from hipe.models.base import RelationModel
+    from hipe.data.load import read_jsonl
+
+    @registry.register("probable_isat_true_hard")
+    class ProbableIsatTrueHard(RelationModel):
+        name = "probable_isat_true_hard"
+        def fit(self, train, dev=None): pass
+        def predict(self, pairs):
+            return [{"at": "PROBABLE", "isAt": "TRUE"} for _ in pairs]
+
+    config = {"data": {"train": str(FIX), "dev_frac": 1.0, "seed": 0},
+              "model": {"name": "probable_isat_true_hard"},
+              "consistency": "hard"}
+    result = run_experiment(config, now="2026-06-22_hard001", runs_root=tmp_path)
+    rows = read_jsonl(Path(result["run_dir"]) / "predictions" / "dev.jsonl")
+    for r in rows:
+        for sp in r["sampled_pairs"]:
+            if sp["isAt"] == "TRUE":
+                assert sp["at"] == "TRUE", (
+                    f"hard mode should force TRUE; got {sp['at']}"
+                )
+
+
 def test_harness_leaderboard_matches_official_scorer_when_pred_class_absent_from_gold(tmp_path):
     # A model that predicts PROBABLE (a class that may be absent from a gold slice)
     # must yield the SAME global the official scorer would, not the in-house metric.

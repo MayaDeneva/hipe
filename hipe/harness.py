@@ -27,10 +27,11 @@ def run_experiment(config: dict, now: str, runs_root=None) -> dict:
     model = registry.get_model(name, **model_cfg)
     model.fit(train, dev)
 
+    consistency_mode = config.get("consistency", "soft")
     raw_preds = model.predict(dev)
     preds = {}
     for p, pred in zip(dev, raw_preds):
-        preds[(p.doc_id, pair_key(p))] = apply_consistency(dict(pred))
+        preds[(p.doc_id, pair_key(p))] = apply_consistency(dict(pred), consistency_mode)
 
     cfg_hash = runs.config_hash(config)
     run_dir = runs.new_run_dir(name, cfg_hash, runs_root, now)
@@ -49,7 +50,8 @@ def run_experiment(config: dict, now: str, runs_root=None) -> dict:
 
     manifest = {"model": name, "config": config, "config_hash": cfg_hash,
                 "now": now, "at_recall": at_recall, "isAt_recall": isat_recall,
-                "global": global_recall, "n_dev": len(dev)}
+                "global": global_recall, "n_dev": len(dev),
+                "consistency": consistency_mode}
     runs.write_manifest(run_dir, manifest)
     runs.append_leaderboard(runs_root, {
         "run_id": run_dir.name, "timestamp": now, "model": name,
