@@ -17,7 +17,7 @@ def ingest_output(download_dir, runs_root) -> list:
             dst = runs_root / child.name
             if not dst.exists():
                 shutil.copytree(child, dst)
-            copied.append(child.name)
+                copied.append(child.name)   # only newly-copied runs
     _merge_leaderboard(src_runs / "leaderboard.csv", runs_root / "leaderboard.csv")
     return copied
 

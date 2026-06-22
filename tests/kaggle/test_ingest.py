@@ -34,3 +34,11 @@ def test_ingest_is_idempotent_by_run_id(tmp_path):
     ingest_output(dl, runs_root)               # second time: no duplicate row
     rows = list(csv.DictReader(open(runs_root / "leaderboard.csv")))
     assert len(rows) == 1
+
+
+def test_ingest_returns_only_newly_copied(tmp_path):
+    dl = tmp_path / "dl"
+    _make_download(dl, "2026-06-22_120000_xlmr_abcd1234", 0.55)
+    runs_root = tmp_path / "runs"
+    assert ingest_output(dl, runs_root) == ["2026-06-22_120000_xlmr_abcd1234"]
+    assert ingest_output(dl, runs_root) == []   # already present -> nothing newly copied
