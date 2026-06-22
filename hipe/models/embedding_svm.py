@@ -1,5 +1,7 @@
 # hipe/models/embedding_svm.py
+import numpy as np
 from sklearn.svm import LinearSVC
+from sklearn.preprocessing import StandardScaler
 from hipe import config as cfg
 from hipe.models.base import RelationModel
 from hipe.models import registry
@@ -26,7 +28,7 @@ class _Head:
 
     def predict(self, X):
         if self.clf is None:
-            return [self.const] * len(X)
+            return [self.const] * X.shape[0]
         return list(self.clf.predict(X))
 
 
@@ -37,24 +39,43 @@ def _cache_path(model_name):
 
 @registry.register("embedding_svm")
 class EmbeddingSVM(RelationModel):
+    """LinearSVC over a pair-specific context embedding. With use_structural, it
+    also appends the spaCy structural features (tense, negation, distance, order)
+    and standard-scales the combined vector (an SVM needs scaling once embeddings
+    and a 0..999 distance feature are mixed)."""
     name = "embedding_svm"
 
-    def __init__(self, model_name=DEFAULT_MODEL, C=1.0, cache_path=None, _encoder=None):
+    def __init__(self, model_name=DEFAULT_MODEL, C=1.0, use_structural=False,
+                 cache_path=None, _encoder=None):
         if _encoder is not None:
             self.encoder = _encoder
         else:
             self.encoder = EmbeddingEncoder(
                 model_name, cache_path=cache_path or _cache_path(model_name))
+        self.use_structural = use_structural
+        self.scaler = None
         self._at = _Head(C)
         self._isat = _Head(C)
 
+    def _features(self, pairs, fit_scaler=False):
+        X = np.asarray(self.encoder.encode([pair_text(p) for p in pairs]))
+        if not self.use_structural:
+            return X
+        from hipe.features.linguistic import linguistic_features, STRUCT_KEYS
+        struct = np.array([[linguistic_features(p).get(k, 0) for k in STRUCT_KEYS]
+                           for p in pairs], dtype=float)
+        X = np.hstack([X, struct])
+        if fit_scaler:
+            self.scaler = StandardScaler().fit(X)
+        return self.scaler.transform(X)
+
     def fit(self, train, dev=None):
-        X = self.encoder.encode([pair_text(p) for p in train])
+        X = self._features(train, fit_scaler=True)
         self._at.fit(X, [p.gold_at for p in train])
         self._isat.fit(X, [p.gold_isat for p in train])
 
     def predict(self, pairs):
-        X = self.encoder.encode([pair_text(p) for p in pairs])
+        X = self._features(pairs)
         at = self._at.predict(X)
         isat = self._isat.predict(X)
         return [{"at": a, "isAt": i, "at_proba": None, "isAt_proba": None}
