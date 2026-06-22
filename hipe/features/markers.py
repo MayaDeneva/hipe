@@ -1,35 +1,42 @@
 from hipe.data.preprocess import fuzzy_find
 
-# entity-representation schemes: (person_start, person_end, place_start, place_end, mask)
-#   plain      — generic markers, entity string kept ([E1]John[/E1])      (baseline)
-#   typed      — type markers, string kept ([PER]John[/PER])              (Zhong & Chen 2021)
-#   typed_mask — type markers, string masked ([PER][/PER])                (entity-mask)
-SCHEMES = {
-    "plain":      ("[E1]", "[/E1]", "[E2]", "[/E2]", False),
-    "typed":      ("[PER]", "[/PER]", "[LOC]", "[/LOC]", False),
-    "typed_mask": ("[PER]", "[/PER]", "[LOC]", "[/LOC]", True),
+# Structural markers are ALWAYS [E1]/[E2] (so pooling is scheme-independent).
+# The scheme only changes the TEXT between them:
+#   plain      — entity string only          ([E1]John[/E1])              (baseline)
+#   typed      — readable type word + string  ([E1] person John [/E1])    (Zhong & Chen 2021)
+#   typed_mask — readable type word, string masked ([E1] person [/E1])
+# Type info must be a REAL word (subword-tokenized) — an opaque special token
+# [PER] gets the same id/embedding as [E1] and conveys nothing.
+SCHEMES = {                          # name -> (use_type_word, mask_entity)
+    "plain":      (False, False),
+    "typed":      (True, False),
+    "typed_mask": (True, True),
 }
+PERSON_MARK = ("[E1]", "[/E1]")
+PLACE_MARK = ("[E2]", "[/E2]")
 DATE_TOKEN = "[DATE]"
+MARKER_TOKENS = ["[E1]", "[/E1]", "[E2]", "[/E2]"]   # backward-compat
 
-# kept for backward-compat (default plain scheme markers)
-E1_START, E1_END = "[E1]", "[/E1]"
-E2_START, E2_END = "[E2]", "[/E2]"
-MARKER_TOKENS = [E1_START, E1_END, E2_START, E2_END]
+TYPE_WORDS = {
+    "person": {"en": "person", "de": "Person", "fr": "personne"},
+    "place":  {"en": "location", "de": "Ort", "fr": "lieu"},
+}
+
+
+def _type_word(etype, lang):
+    d = TYPE_WORDS[etype]
+    return d.get(lang if lang in d else "en", d["en"])
 
 
 def scheme_marker_tokens(scheme="plain", add_date=False):
-    """special tokens to add to the tokenizer for a scheme."""
-    ps, pe, ls, le, _ = SCHEMES[scheme]
-    toks = [ps, pe, ls, le]
+    toks = list(MARKER_TOKENS)
     if add_date:
         toks.append(DATE_TOKEN)
     return toks
 
 
 def scheme_pool_markers(scheme="plain"):
-    """(person_start, person_end, place_start, place_end) for R-BERT pooling."""
-    ps, pe, ls, le, _ = SCHEMES[scheme]
-    return ps, pe, ls, le
+    return PERSON_MARK[0], PERSON_MARK[1], PLACE_MARK[0], PLACE_MARK[1]
 
 
 def year_of(pub_date):
@@ -53,28 +60,33 @@ def _locate(text, mentions):
     return None
 
 
+def _wrap(markers, type_word, entity_text, mask):
+    st, en = markers
+    parts = [p for p in (type_word, "" if mask else entity_text) if p]
+    return f"{st} {' '.join(parts)} {en}"
+
+
 def marked_text(pair, scheme="plain", add_date=False) -> str:
-    """Context with the two entities wrapped per `scheme`; optionally prefixed
-    with the publication year ([DATE] 1850) so the model can reason about 'now'
-    for isAt. Falls back to prepending the marked surfaces when a mention can't
-    be located or the two spans overlap."""
-    ps, pe, ls, le, mask = SCHEMES[scheme]
+    """Context with the two entities wrapped in [E1]/[E2]; `typed` schemes inject
+    a readable type word, optionally masking the entity string. Optional [DATE]
+    <year> prefix so the model can reason about 'now' for isAt."""
+    use_type, mask = SCHEMES[scheme]
+    lang = pair.language
+    ptw = _type_word("person", lang) if use_type else ""
+    ltw = _type_word("place", lang) if use_type else ""
     text = pair.context
     pspan = _locate(text, pair.person.mentions)
     lspan = _locate(text, pair.place.mentions)
     if pspan is not None and lspan is not None and not _overlap(pspan, lspan):
-        # insert the later span first so the earlier span's offsets stay valid
-        for span, st, en in sorted(
-                [(pspan, ps, pe), (lspan, ls, le)],
+        for span, mark, tw in sorted(
+                [(pspan, PERSON_MARK, ptw), (lspan, PLACE_MARK, ltw)],
                 key=lambda x: x[0][0], reverse=True):
             s, e = span
-            content = "" if mask else text[s:e]
-            text = text[:s] + st + content + en + text[e:]
+            text = text[:s] + _wrap(mark, tw, text[s:e], mask) + text[e:]
         out = text
     else:
-        pc = "" if mask else pair.person.surface
-        lc = "" if mask else pair.place.surface
-        out = f"{ps}{pc}{pe} {ls}{lc}{le} {text}"
+        out = (f"{_wrap(PERSON_MARK, ptw, pair.person.surface, mask)} "
+               f"{_wrap(PLACE_MARK, ltw, pair.place.surface, mask)} {text}")
     if add_date:
         y = year_of(pair.pub_date)
         if y is not None:
