@@ -86,14 +86,15 @@ class XLMRModel(RelationModel):
     name = "xlmr"
 
     def __init__(self, model_name="xlm-roberta-base", epochs=8, batch_size=16,
-                 lr=2e-5, max_length=192, dropout=0.1, val_frac=0.15, patience=2,
-                 max_train=None, seed=0):
+                 lr=2e-5, max_length=192, dropout=0.1, weight_decay=0.01,
+                 val_frac=0.15, patience=2, max_train=None, seed=0):
         self.model_name = model_name
         self.epochs = epochs
         self.batch_size = batch_size
         self.lr = lr
         self.max_length = max_length
         self.dropout = dropout
+        self.weight_decay = weight_decay
         self.val_frac = val_frac
         self.patience = patience
         self.max_train = max_train
@@ -162,7 +163,16 @@ class XLMRModel(RelationModel):
 
         loader = DataLoader(_DS(), batch_size=self.batch_size, shuffle=True,
                             collate_fn=collate)
-        opt = torch.optim.AdamW(self.module.parameters(), lr=self.lr)
+        # weight decay on everything except biases / LayerNorm (standard recipe)
+        no_decay = ("bias", "LayerNorm.weight", "layer_norm.weight")
+        grouped = [
+            {"params": [p for n, p in self.module.named_parameters()
+                        if not any(nd in n for nd in no_decay)],
+             "weight_decay": self.weight_decay},
+            {"params": [p for n, p in self.module.named_parameters()
+                        if any(nd in n for nd in no_decay)], "weight_decay": 0.0},
+        ]
+        opt = torch.optim.AdamW(grouped, lr=self.lr)
         from transformers import get_linear_schedule_with_warmup
         total_steps = max(1, len(loader) * self.epochs)
         sched = get_linear_schedule_with_warmup(
