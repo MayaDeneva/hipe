@@ -6,7 +6,7 @@
 
 **Architecture:** A new `RelationModel` (`embedding_svm`) encodes a *pair-specific* templated string (`"<person> [SEP] <place> [SEP] <context>"`) with a multilingual sentence-transformer (disk-cached), then trains two independent `LinearSVC(class_weight="balanced")` heads (`at`, `isAt`). A small harness enhancement lets configs name explicit `train:`/`dev:` files (and lists, to combine languages) so we validate on the provided newspapers split instead of an internal random split. Everything plugs into the existing run protocol — no scorer/registry/leaderboard changes.
 
-**Tech Stack:** Python 3.12, scikit-learn (`LinearSVC`), sentence-transformers (`paraphrase-multilingual-MiniLM-L12-v2`), numpy, pytest. Builds on the merged harness foundation.
+**Tech Stack:** Python 3.12, scikit-learn (`LinearSVC`), sentence-transformers (`paraphrase-multilingual-mpnet-base-v2`), numpy, pytest. Builds on the merged harness foundation.
 
 ## Global Constraints
 
@@ -15,7 +15,7 @@
 - The metric and scoring are unchanged: the harness scores via the vendored official `score_files`; do not add a second metric path.
 - Class imbalance is severe (EDA: `isAt` 88:12, `at` 59/24/17) → every classifier head uses `class_weight="balanced"`.
 - Embedding input is **pair-specific**: `f"{pair.person.surface} [SEP] {pair.place.surface} [SEP] {pair.context}"` (pairs sharing a document must not collapse to identical features).
-- Default embedding model: `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`.
+- Default embedding model: `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`.
 - Encodings are disk-cached, keyed by `(model_name, sha1(text))`, so re-runs and the later Kaggle path are cheap and deterministic.
 - Data setup (Option A): train on `sandbox/*-train`, validate on `newspapers/v1.0/*` (gold, same impresso domain as the official test).
 - `RelationModel.predict` returns one dict per pair with keys `"at"`, `"isAt"` (and `"at_proba"`/`"isAt_proba"`, here `None` — probability calibration is deferred to the ensembling plan).
@@ -282,7 +282,7 @@ git commit -m "feat: features package + pair_text + ml extra (sentence-transform
 **Interfaces:**
 - Consumes: nothing from earlier tasks (standalone, numpy only).
 - Produces:
-  - `hipe.features.embeddings.DEFAULT_MODEL: str` = `"sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"`.
+  - `hipe.features.embeddings.DEFAULT_MODEL: str` = `"sentence-transformers/paraphrase-multilingual-mpnet-base-v2"`.
   - `hipe.features.embeddings.EmbeddingEncoder(model_name=DEFAULT_MODEL, cache_path=None, encode_fn=None)`. `encode_fn`, if given, is a callable `list[str] -> np.ndarray` used instead of loading a sentence-transformer (this is the test seam; the real model is loaded lazily only when `encode_fn` is None and a cache miss occurs). Method `encode(texts: list[str]) -> np.ndarray` returns one row per input text (order preserved), using and persisting a disk cache keyed by `sha1(text)`.
 
 - [ ] **Step 1: Write the failing test**
@@ -304,7 +304,7 @@ def _fake_encode_factory():
 
 
 def test_default_model_name():
-    assert DEFAULT_MODEL == "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    assert DEFAULT_MODEL == "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
 
 
 def test_encode_returns_row_per_text_in_order():
@@ -343,7 +343,7 @@ import pickle
 from pathlib import Path
 import numpy as np
 
-DEFAULT_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+DEFAULT_MODEL = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
 
 
 def _default_encode_fn(model_name):
@@ -579,7 +579,7 @@ data:
 consistency: soft
 model:
   name: embedding_svm
-  model_name: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+  model_name: sentence-transformers/paraphrase-multilingual-mpnet-base-v2
   C: 1.0
 ```
 
@@ -598,7 +598,7 @@ data:
 consistency: soft
 model:
   name: embedding_svm
-  model_name: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+  model_name: sentence-transformers/paraphrase-multilingual-mpnet-base-v2
   C: 1.0
 ```
 
@@ -643,7 +643,7 @@ Run:
 hipe run configs/embedding_svm.yaml
 hipe leaderboard
 ```
-Expected: the first command downloads `paraphrase-multilingual-MiniLM-L12-v2` (~470MB, once) and encodes ~7,400 texts (cached afterward), then prints `at_recall`, `isAt_recall`, `global` with `n_dev=104` (the newspapers docs). `hipe leaderboard` shows the `embedding_svm` row. Record the numbers in your report. (A second run is fast — embeddings are cached.)
+Expected: the first command downloads `paraphrase-multilingual-mpnet-base-v2` (~1GB, once) and encodes ~7,400 texts (cached afterward), then prints `at_recall`, `isAt_recall`, `global` with `n_dev=104` (the newspapers docs). `hipe leaderboard` shows the `embedding_svm` row. Record the numbers in your report. (A second run is fast — embeddings are cached.)
 
 - [ ] **Step 7: Optional comparison run**
 
