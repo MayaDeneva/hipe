@@ -3,7 +3,8 @@ import numpy as np
 from hipe import config as cfg
 from hipe.models.base import RelationModel
 from hipe.models import registry
-from hipe.features.markers import marked_text, MARKER_TOKENS
+from hipe.features.markers import (marked_text, scheme_marker_tokens,
+                                    scheme_pool_markers)
 
 
 def _quiet_hf():
@@ -100,6 +101,7 @@ class XLMRModel(RelationModel):
 
     def __init__(self, model_name="xlm-roberta-base", epochs=8, batch_size=16,
                  lr=2e-5, max_length=192, dropout=0.1, weight_decay=0.01,
+                 marker_scheme="plain", add_date=False,
                  val_frac=0.15, patience=2, max_train=None, seed=0):
         self.model_name = model_name
         self.epochs = epochs
@@ -108,6 +110,8 @@ class XLMRModel(RelationModel):
         self.max_length = max_length
         self.dropout = dropout
         self.weight_decay = weight_decay
+        self.marker_scheme = marker_scheme
+        self.add_date = add_date
         self.val_frac = val_frac
         self.patience = patience
         self.max_train = max_train
@@ -134,15 +138,16 @@ class XLMRModel(RelationModel):
 
         at2id = {l: i for i, l in enumerate(cfg.AT_LABELS)}
         isat2id = {l: i for i, l in enumerate(cfg.ISAT_LABELS)}
-        texts = [marked_text(p) for p in tr]
+        texts = [marked_text(p, self.marker_scheme, self.add_date) for p in tr]
         at_y = [at2id[p.gold_at] for p in tr]
         isat_y = [isat2id[p.gold_isat] for p in tr]
 
         self.tok = AutoTokenizer.from_pretrained(self.model_name)
-        self.tok.add_special_tokens({"additional_special_tokens": MARKER_TOKENS})
+        self.tok.add_special_tokens({"additional_special_tokens":
+                                     scheme_marker_tokens(self.marker_scheme, self.add_date)})
         enc = self.tok(texts, truncation=True, max_length=self.max_length)
         markers = tuple(self.tok.convert_tokens_to_ids(t)
-                        for t in ("[E1]", "[/E1]", "[E2]", "[/E2]"))
+                        for t in scheme_pool_markers(self.marker_scheme))
 
         self.module = _build_module(self.model_name, len(cfg.AT_LABELS),
                                     len(cfg.ISAT_LABELS), len(self.tok),
@@ -247,7 +252,8 @@ class XLMRModel(RelationModel):
     def _eval_global(self, pairs):
         from hipe.eval.metrics import macro_recall
         from hipe.models.base import apply_consistency
-        at_p, is_p = self._infer([marked_text(p) for p in pairs])
+        at_p, is_p = self._infer([marked_text(p, self.marker_scheme, self.add_date)
+                                  for p in pairs])
         at_pred, is_pred = [], []
         for a, s in zip(at_p, is_p):
             d = {"at": cfg.AT_LABELS[int(a.argmax())],
@@ -260,7 +266,8 @@ class XLMRModel(RelationModel):
         return (macro_recall(at_t, at_pred) + macro_recall(is_t, is_pred)) / 2
 
     def predict(self, pairs):
-        at_p, is_p = self._infer([marked_text(p) for p in pairs])
+        at_p, is_p = self._infer([marked_text(p, self.marker_scheme, self.add_date)
+                                  for p in pairs])
         out = []
         for a, s in zip(at_p, is_p):
             out.append({
