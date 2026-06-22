@@ -14,119 +14,133 @@ def _class_weights(labels, label_list):
     return torch.tensor(w, dtype=torch.float)
 
 
-class _Target:
-    """One fine-tuned sequence classifier for a single relation target.
+def _build_module(model_name, n_at, n_isat, vocab_size, dropout):
+    """Shared encoder + two linear heads over the [CLS] representation."""
+    import torch.nn as nn
+    from transformers import AutoModel
 
-    Falls back to a constant prediction when <2 classes are present in training
-    (a transformer cannot be trained on a single class)."""
+    class _MultiTaskXLMR(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.encoder = AutoModel.from_pretrained(model_name)
+            self.encoder.resize_token_embeddings(vocab_size)
+            h = self.encoder.config.hidden_size
+            self.dropout = nn.Dropout(dropout)
+            self.at_head = nn.Linear(h, n_at)
+            self.isat_head = nn.Linear(h, n_isat)
 
-    def __init__(self, label_list, model_name, max_length):
-        self.label_list = label_list
-        self.lab2id = {l: i for i, l in enumerate(label_list)}
-        self.model_name = model_name
-        self.max_length = max_length
-        self.tok = None
-        self.model = None
-        self.const = None
+        def forward(self, input_ids, attention_mask):
+            out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
+            pooled = self.dropout(out.last_hidden_state[:, 0])   # [CLS]
+            return self.at_head(pooled), self.isat_head(pooled)
 
-    def train(self, texts, labels, *, epochs, batch_size, lr, seed):
-        import torch
-        from torch.utils.data import Dataset
-        from transformers import (AutoTokenizer, AutoModelForSequenceClassification,
-                                  Trainer, TrainingArguments, DataCollatorWithPadding,
-                                  set_seed)
-        if len(set(labels)) < 2:
-            self.const = labels[0] if labels else "FALSE"
-            return
-        set_seed(seed)
-        self.tok = AutoTokenizer.from_pretrained(self.model_name)
-        self.tok.add_special_tokens({"additional_special_tokens": MARKER_TOKENS})
-        self.model = AutoModelForSequenceClassification.from_pretrained(
-            self.model_name, num_labels=len(self.label_list))
-        self.model.resize_token_embeddings(len(self.tok))
-
-        enc = self.tok(texts, truncation=True, max_length=self.max_length)
-        y = [self.lab2id[l] for l in labels]
-
-        class _DS(Dataset):
-            def __len__(self_inner):
-                return len(y)
-
-            def __getitem__(self_inner, i):
-                item = {k: enc[k][i] for k in enc}
-                item["labels"] = y[i]
-                return item
-
-        weights = _class_weights(labels, self.label_list)
-
-        class _WeightedTrainer(Trainer):
-            def compute_loss(self_t, model, inputs, return_outputs=False, **kw):
-                labels_ = inputs.pop("labels")
-                outputs = model(**inputs)
-                loss = torch.nn.functional.cross_entropy(
-                    outputs.logits, labels_, weight=weights.to(outputs.logits.device))
-                return (loss, outputs) if return_outputs else loss
-
-        args = TrainingArguments(
-            output_dir=str(cfg.CACHE_DIR / "xlmr_tmp"),
-            num_train_epochs=epochs, per_device_train_batch_size=batch_size,
-            learning_rate=lr, logging_strategy="no", save_strategy="no",
-            report_to=[], seed=seed)
-        trainer = _WeightedTrainer(
-            model=self.model, args=args, train_dataset=_DS(),
-            data_collator=DataCollatorWithPadding(self.tok))
-        trainer.train()
-
-    def predict(self, texts):
-        if self.const is not None:
-            proba = {l: (1.0 if l == self.const else 0.0) for l in self.label_list}
-            return [self.const] * len(texts), [dict(proba) for _ in texts]
-        import torch
-        self.model.eval()
-        labels, probas = [], []
-        for i in range(0, len(texts), 32):
-            batch = self.tok(texts[i:i + 32], truncation=True,
-                             max_length=self.max_length, padding=True,
-                             return_tensors="pt")
-            batch = {k: v.to(self.model.device) for k, v in batch.items()}
-            with torch.no_grad():
-                logits = self.model(**batch).logits
-            probs = torch.softmax(logits, dim=-1).cpu().numpy()
-            for row in probs:
-                j = int(row.argmax())
-                labels.append(self.label_list[j])
-                probas.append({l: float(row[k]) for k, l in enumerate(self.label_list)})
-        return labels, probas
+    return _MultiTaskXLMR()
 
 
 @registry.register("xlmr")
 class XLMRModel(RelationModel):
+    """Entity-marker XLM-R with a SHARED encoder and two classification heads
+    (at, isAt), trained jointly (multi-task) with per-head class-weighted
+    cross-entropy summed. One ~270M encoder serves both targets — half the size
+    of two separate models — and the related tasks share representation."""
     name = "xlmr"
 
-    def __init__(self, model_name="xlm-roberta-base", epochs=3, batch_size=16,
-                 lr=2e-5, max_length=192, max_train=None, seed=0):
+    def __init__(self, model_name="xlm-roberta-base", epochs=5, batch_size=16,
+                 lr=2e-5, max_length=192, dropout=0.1, max_train=None, seed=0):
         self.model_name = model_name
         self.epochs = epochs
         self.batch_size = batch_size
         self.lr = lr
         self.max_length = max_length
+        self.dropout = dropout
         self.max_train = max_train
         self.seed = seed
-        self._at = _Target(cfg.AT_LABELS, model_name, max_length)
-        self._isat = _Target(cfg.ISAT_LABELS, model_name, max_length)
+        self.tok = None
+        self.module = None
+        self._device = None
 
     def fit(self, train, dev=None):
+        import torch
+        from torch.utils.data import DataLoader, Dataset
+        from transformers import AutoTokenizer, set_seed
         if self.max_train is not None:
             train = train[:self.max_train]
+        set_seed(self.seed)
+
+        at2id = {l: i for i, l in enumerate(cfg.AT_LABELS)}
+        isat2id = {l: i for i, l in enumerate(cfg.ISAT_LABELS)}
         texts = [marked_text(p) for p in train]
-        kw = dict(epochs=self.epochs, batch_size=self.batch_size,
-                  lr=self.lr, seed=self.seed)
-        self._at.train(texts, [p.gold_at for p in train], **kw)
-        self._isat.train(texts, [p.gold_isat for p in train], **kw)
+        at_y = [at2id[p.gold_at] for p in train]
+        isat_y = [isat2id[p.gold_isat] for p in train]
+
+        self.tok = AutoTokenizer.from_pretrained(self.model_name)
+        self.tok.add_special_tokens({"additional_special_tokens": MARKER_TOKENS})
+        enc = self.tok(texts, truncation=True, max_length=self.max_length)
+
+        self.module = _build_module(self.model_name, len(cfg.AT_LABELS),
+                                    len(cfg.ISAT_LABELS), len(self.tok), self.dropout)
+        self._device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.module.to(self._device)
+
+        at_w = _class_weights([p.gold_at for p in train], cfg.AT_LABELS).to(self._device)
+        isat_w = _class_weights([p.gold_isat for p in train], cfg.ISAT_LABELS).to(self._device)
+        pad = self.tok.pad_token_id or 0
+
+        class _DS(Dataset):
+            def __len__(s):
+                return len(at_y)
+
+            def __getitem__(s, i):
+                return (enc["input_ids"][i], enc["attention_mask"][i],
+                        at_y[i], isat_y[i])
+
+        def collate(batch):
+            m = max(len(b[0]) for b in batch)
+            ids, mask, at, isat = [], [], [], []
+            for b in batch:
+                n = m - len(b[0])
+                ids.append(b[0] + [pad] * n)
+                mask.append(b[1] + [0] * n)
+                at.append(b[2])
+                isat.append(b[3])
+            return (torch.tensor(ids), torch.tensor(mask),
+                    torch.tensor(at), torch.tensor(isat))
+
+        loader = DataLoader(_DS(), batch_size=self.batch_size, shuffle=True,
+                            collate_fn=collate)
+        opt = torch.optim.AdamW(self.module.parameters(), lr=self.lr)
+        ce = torch.nn.functional.cross_entropy
+        self.module.train()
+        for _ in range(self.epochs):
+            for ids, mask, at, isat in loader:
+                ids, mask = ids.to(self._device), mask.to(self._device)
+                at, isat = at.to(self._device), isat.to(self._device)
+                opt.zero_grad()
+                at_log, isat_log = self.module(ids, mask)
+                loss = ce(at_log, at, weight=at_w) + ce(isat_log, isat, weight=isat_w)
+                loss.backward()
+                opt.step()
 
     def predict(self, pairs):
+        import torch
         texts = [marked_text(p) for p in pairs]
-        at, at_p = self._at.predict(texts)
-        isat, isat_p = self._isat.predict(texts)
-        return [{"at": a, "isAt": i, "at_proba": ap, "isAt_proba": ip}
-                for a, i, ap, ip in zip(at, isat, at_p, isat_p)]
+        self.module.eval()
+        out = []
+        for i in range(0, len(texts), 32):
+            batch = self.tok(texts[i:i + 32], truncation=True,
+                             max_length=self.max_length, padding=True,
+                             return_tensors="pt")
+            batch = {k: v.to(self._device) for k, v in batch.items()}
+            with torch.no_grad():
+                at_log, isat_log = self.module(batch["input_ids"],
+                                               batch["attention_mask"])
+            at_p = torch.softmax(at_log, dim=-1).cpu().numpy()
+            isat_p = torch.softmax(isat_log, dim=-1).cpu().numpy()
+            for a, s in zip(at_p, isat_p):
+                out.append({
+                    "at": cfg.AT_LABELS[int(a.argmax())],
+                    "isAt": cfg.ISAT_LABELS[int(s.argmax())],
+                    "at_proba": {l: float(a[k]) for k, l in enumerate(cfg.AT_LABELS)},
+                    "isAt_proba": {l: float(s[k]) for k, l in enumerate(cfg.ISAT_LABELS)},
+                })
+        return out
