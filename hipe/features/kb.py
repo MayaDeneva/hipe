@@ -131,10 +131,23 @@ GLOSS_PATH = cfg.ROOT / "data" / "kb" / "glosses.json"
 _glosses = None
 
 
+def _find_glosses():
+    from pathlib import Path
+    # cfg.ROOT works locally; on Kaggle the package installs non-editable (ROOT ->
+    # site-packages) while the repo is cloned to ./code, so search that too.
+    for p in (GLOSS_PATH,
+              Path.cwd() / "code" / "data" / "kb" / "glosses.json",
+              Path.cwd() / "data" / "kb" / "glosses.json"):
+        if p.exists():
+            return p
+    return None
+
+
 def load_glosses():
     global _glosses
     if _glosses is None:
-        _glosses = json.load(open(GLOSS_PATH)) if GLOSS_PATH.exists() else {}
+        p = _find_glosses()
+        _glosses = json.load(open(p)) if p else {}
     return _glosses
 
 
