@@ -1,4 +1,8 @@
 # hipe/models/linguistic.py
+import os
+# xgboost's libomp can collide with another OpenMP runtime (sklearn/torch) in the
+# same process on macOS -> segfault. Allow the duplicate before xgboost loads.
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 from collections import Counter
 import numpy as np
 from hipe import config as cfg
