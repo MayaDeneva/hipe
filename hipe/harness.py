@@ -37,6 +37,14 @@ def run_experiment(config: dict, now: str, runs_root=None) -> dict:
     train = _load_pairs_spec(train_spec)
     if dev_spec is not None:
         dev = _load_pairs_spec(dev_spec)
+        # in-domain holdout: document-split the dev files, add the held-IN docs to
+        # training and keep the held-OUT slice as the dev (so the model trains on
+        # the test domain). Reproducible from the cloned data via the fixed seed.
+        holdout = data.get("dev_holdout_frac")
+        if holdout:
+            dev_in, dev = split_by_document(
+                dev, dev_frac=holdout, seed=data.get("dev_holdout_seed", 0))
+            train = train + dev_in
         dev_doc_ids = {p.doc_id for p in dev}
         train = [p for p in train if p.doc_id not in dev_doc_ids]
         gold_sources = dev_spec
