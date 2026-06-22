@@ -1,17 +1,20 @@
-"""spaCy linguistic features for person-place relation classification.
+"""spaCy structural features + the relation-region text for embedding.
 
-Encodes the hypothesis that the relation is signalled by the verbs between the
-two entities, their tense (past -> was ever there; present -> there now),
-negation, and the entities' proximity/order — but WITHOUT a hand-written verb
-lexicon. The actual verb lemmas between the entities are emitted as features
-(`vb_<lemma>`) so the classifier learns which verbs matter from the labels.
-Uses POS + lemma + morphology (robust on noisy OCR); not the dependency parse.
+The hypothesis (tense / verbs / proximity signal the relation) is kept, but the
+LEXICAL part is no longer a hand-counted bag of verb lemmas (which drowns in OCR
+noise and fragments across languages). Instead `linguistic_features` returns the
+robust STRUCTURAL signals (tense, negation, distance, order) and `relation_span`
+returns the text region spanning both entities — which a multilingual embedding
+turns into dense, OCR- and language-robust verb/context features.
 """
 from functools import lru_cache
 from hipe.data.preprocess import fuzzy_find
 
 _NEG = {"not", "no", "never", "ne", "pas", "nicht", "kein", "keine", "nie"}
 _MODEL = {"en": "en_core_web_sm", "de": "de_core_news_sm", "fr": "fr_core_news_sm"}
+
+STRUCT_KEYS = ["person_found", "place_found", "dist_chars", "person_first",
+               "n_verbs", "has_past", "has_pres", "has_negation"]
 
 
 @lru_cache(maxsize=4)
@@ -32,17 +35,28 @@ def _span(text, mentions):
     return None
 
 
+def relation_span(pair) -> str:
+    """Text region covering both entities (+ margin) — contains the linking
+    verbs in context; what the embedding encodes."""
+    text = pair.context
+    ps = _span(text, pair.person.mentions)
+    ls = _span(text, pair.place.mentions)
+    if ps is None or ls is None:
+        return text[:300]
+    lo, hi = min(ps[0], ls[0]), max(ps[1], ls[1])
+    return text[max(0, lo - 30):min(len(text), hi + 30)]
+
+
 def linguistic_features(pair) -> dict:
-    """Return a feature dict mixing structural signals with learned per-verb
-    features (`vb_<lemma>`: 1). The classifier's vectorizer turns the verb keys
-    into a data-driven bag-of-verb-lemmas; unseen verbs are simply dropped."""
+    """Robust structural signals only (no lexical bag)."""
     text = pair.context
     lang = pair.language if pair.language in _MODEL else "en"
     ps = _span(text, pair.person.mentions)
     ls = _span(text, pair.place.mentions)
-    f = {"person_found": int(ps is not None), "place_found": int(ls is not None),
-         "dist_chars": 999, "person_first": 0, "n_verbs": 0,
-         "has_past": 0, "has_pres": 0, "has_negation": 0}
+    f = {k: 0 for k in STRUCT_KEYS}
+    f["person_found"] = int(ps is not None)
+    f["place_found"] = int(ls is not None)
+    f["dist_chars"] = 999
     if ps is None or ls is None:
         return f
 
@@ -57,9 +71,6 @@ def linguistic_features(pair) -> dict:
     tenses = set()
     for t in verbs:
         tenses |= set(t.morph.get("Tense"))
-        lemma = t.lemma_.lower().strip()
-        if lemma:
-            f["vb_" + lemma] = 1                 # learned bag-of-verb-lemmas
     f["has_past"] = int("Past" in tenses)
     f["has_pres"] = int("Pres" in tenses)
     f["has_negation"] = int(any(t.dep_ == "neg" or t.lower_ in _NEG for t in doc))

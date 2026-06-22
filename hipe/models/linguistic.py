@@ -8,7 +8,8 @@ import numpy as np
 from hipe import config as cfg
 from hipe.models.base import RelationModel
 from hipe.models import registry
-from hipe.features.linguistic import linguistic_features
+from hipe.features.linguistic import linguistic_features, relation_span, STRUCT_KEYS
+from hipe.features.embeddings import EmbeddingEncoder, DEFAULT_MODEL
 
 
 def _sample_weights(labels, label_list):
@@ -33,8 +34,9 @@ class _Head:
         if len(set(y)) < 2:
             self.const = y[0] if y else "FALSE"
             return
-        self.clf = XGBClassifier(n_estimators=300, max_depth=4, learning_rate=0.1,
-                                 subsample=0.8, eval_metric="mlogloss", n_jobs=4)
+        self.clf = XGBClassifier(n_estimators=400, max_depth=5, learning_rate=0.08,
+                                 subsample=0.8, colsample_bytree=0.8,
+                                 eval_metric="mlogloss", n_jobs=1)   # n_jobs=1: avoid OpenMP clash
         self.clf.fit(X, [self.lab2id[l] for l in y],
                      sample_weight=_sample_weights(y, self.label_list))
 
@@ -56,35 +58,32 @@ class _Head:
 
 @registry.register("linguistic")
 class LinguisticModel(RelationModel):
-    """spaCy linguistic features (tense, negation, distance, order) + a learned
-    bag-of-verb-lemmas -> XGBoost, one head per target. No hand-written verb
-    lexicon: the classifier learns which verbs matter from the labels."""
+    """Structural spaCy features (tense, negation, distance, order) + a dense
+    multilingual embedding of the relation region (verbs-in-context) -> XGBoost.
+    Embeddings replace the raw verb-lemma bag: robust to OCR noise and unified
+    across languages."""
     name = "linguistic"
 
-    def __init__(self, min_verb_df=3):
-        self.min_verb_df = min_verb_df      # prune verbs seen in <N docs (OCR noise)
-        self.vec = None
+    def __init__(self, model_name=DEFAULT_MODEL, cache_path=None):
+        slug = model_name.replace("/", "_")
+        self.encoder = EmbeddingEncoder(
+            model_name, cache_path=cache_path or (cfg.CACHE_DIR / f"emb_{slug}.pkl"))
         self._at = _Head(cfg.AT_LABELS)
         self._isat = _Head(cfg.ISAT_LABELS)
 
-    def _prune(self, feats, keep_verbs):
-        return [{k: v for k, v in f.items()
-                 if not k.startswith("vb_") or k in keep_verbs} for f in feats]
+    def _features(self, pairs):
+        struct = np.array([[linguistic_features(p).get(k, 0) for k in STRUCT_KEYS]
+                           for p in pairs], dtype=float)
+        emb = self.encoder.encode([relation_span(p) for p in pairs])
+        return np.hstack([struct, emb])
 
     def fit(self, train, dev=None):
-        from sklearn.feature_extraction import DictVectorizer
-        feats = [linguistic_features(p) for p in train]
-        df = Counter(k for f in feats for k in f if k.startswith("vb_"))
-        keep = {k for k, c in df.items() if c >= self.min_verb_df}
-        self._keep = keep
-        self.vec = DictVectorizer(sparse=True)
-        X = self.vec.fit_transform(self._prune(feats, keep))
+        X = self._features(train)
         self._at.fit(X, [p.gold_at for p in train])
         self._isat.fit(X, [p.gold_isat for p in train])
 
     def predict(self, pairs):
-        feats = self._prune([linguistic_features(p) for p in pairs], self._keep)
-        X = self.vec.transform(feats)        # unseen verbs dropped automatically
+        X = self._features(pairs)
         at, at_p = self._at.predict(X)
         isat, isat_p = self._isat.predict(X)
         return [{"at": a, "isAt": i, "at_proba": ap, "isAt_proba": ip}

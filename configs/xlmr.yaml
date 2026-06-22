@@ -15,5 +15,5 @@ model:
   max_length: 192
   batch_size: 16
   lr: 2.0e-5
-  dropout: 0.2
-  weight_decay: 0.01
+  dropout: 0.1
+  weight_decay: 0.0
