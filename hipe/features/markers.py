@@ -76,17 +76,34 @@ def _gloss_for(entity, add_kb, lang):
     return gloss_for(entity.qid, lang)
 
 
-def marked_text(pair, scheme="plain", add_date=False, add_kb=False) -> str:
+def _narrow_context(pair, margin: int = 40, max_span: int = 200) -> str:
+    """A TIGHT window around both entities, derived from the (wide) pair.context.
+    Used by the isAt head, which wants local focus rather than wide context."""
+    text = pair.context
+    ps = _locate(text, pair.person.mentions)
+    ls = _locate(text, pair.place.mentions)
+    if ps is None or ls is None:
+        return text
+    lo, hi = (ps, ls) if ps[0] <= ls[0] else (ls, ps)
+    if hi[1] - lo[0] <= max_span:
+        return text[max(0, lo[0] - margin):min(len(text), hi[1] + margin)]
+    w1 = text[max(0, ps[0] - margin):min(len(text), ps[1] + margin)]
+    w2 = text[max(0, ls[0] - margin):min(len(text), ls[1] + margin)]
+    return w1 + " [...] " + w2
+
+
+def marked_text(pair, scheme="plain", add_date=False, add_kb=False, scope="wide") -> str:
     """Context with the two entities wrapped in [E1]/[E2]; `typed` schemes inject
     a readable type word, optionally masking the entity string. add_kb injects the
-    entity's Wikidata gloss as text. Optional [DATE] <year> prefix for isAt."""
+    entity's Wikidata gloss as text. Optional [DATE] <year> prefix for isAt.
+    scope='narrow' tightens the window (for the isAt head)."""
     use_type, mask = SCHEMES[scheme]
     lang = pair.language
     ptw = _type_word("person", lang) if use_type else ""
     ltw = _type_word("place", lang) if use_type else ""
     pgl = _gloss_for(pair.person, add_kb, lang)
     lgl = _gloss_for(pair.place, add_kb, lang)
-    text = pair.context
+    text = _narrow_context(pair) if scope == "narrow" else pair.context
     pspan = _locate(text, pair.person.mentions)
     lspan = _locate(text, pair.place.mentions)
     if pspan is not None and lspan is not None and not _overlap(pspan, lspan):

@@ -102,6 +102,7 @@ class XLMRModel(RelationModel):
     def __init__(self, model_name="xlm-roberta-base", epochs=8, batch_size=16,
                  lr=2e-5, max_length=192, dropout=0.1, weight_decay=0.01,
                  marker_scheme="plain", add_date=False, add_kb=False,
+                 dual_scope=False,
                  val_frac=0.15, patience=2, max_train=None, seed=0):
         self.model_name = model_name
         self.epochs = epochs
@@ -113,6 +114,7 @@ class XLMRModel(RelationModel):
         self.marker_scheme = marker_scheme
         self.add_date = add_date
         self.add_kb = add_kb
+        self.dual_scope = dual_scope        # at<-wide context, isAt<-narrow context
         self.val_frac = val_frac
         self.patience = patience
         self.max_train = max_train
@@ -139,7 +141,9 @@ class XLMRModel(RelationModel):
 
         at2id = {l: i for i, l in enumerate(cfg.AT_LABELS)}
         isat2id = {l: i for i, l in enumerate(cfg.ISAT_LABELS)}
-        texts = [marked_text(p, self.marker_scheme, self.add_date, self.add_kb) for p in tr]
+        def _mk(p, scope):
+            return marked_text(p, self.marker_scheme, self.add_date, self.add_kb, scope)
+        texts = [_mk(p, "wide") for p in tr]
         at_y = [at2id[p.gold_at] for p in tr]
         isat_y = [isat2id[p.gold_isat] for p in tr]
 
@@ -147,6 +151,9 @@ class XLMRModel(RelationModel):
         self.tok.add_special_tokens({"additional_special_tokens":
                                      scheme_marker_tokens(self.marker_scheme, self.add_date)})
         enc = self.tok(texts, truncation=True, max_length=self.max_length)
+        # narrow view (for the isAt head) — same encoding as wide unless dual_scope
+        enc_n = (self.tok([_mk(p, "narrow") for p in tr], truncation=True,
+                          max_length=self.max_length) if self.dual_scope else enc)
         markers = tuple(self.tok.convert_tokens_to_ids(t)
                         for t in scheme_pool_markers(self.marker_scheme))
 
@@ -166,19 +173,18 @@ class XLMRModel(RelationModel):
 
             def __getitem__(s, i):
                 return (enc["input_ids"][i], enc["attention_mask"][i],
+                        enc_n["input_ids"][i], enc_n["attention_mask"][i],
                         at_y[i], isat_y[i])
 
+        def _pad(seqs, fill):
+            m = max(len(s) for s in seqs)
+            return torch.tensor([s + [fill] * (m - len(s)) for s in seqs])
+
         def collate(batch):
-            m = max(len(b[0]) for b in batch)
-            ids, mask, at, isat = [], [], [], []
-            for b in batch:
-                n = m - len(b[0])
-                ids.append(b[0] + [pad] * n)
-                mask.append(b[1] + [0] * n)
-                at.append(b[2])
-                isat.append(b[3])
-            return (torch.tensor(ids), torch.tensor(mask),
-                    torch.tensor(at), torch.tensor(isat))
+            return (_pad([b[0] for b in batch], pad), _pad([b[1] for b in batch], 0),
+                    _pad([b[2] for b in batch], pad), _pad([b[3] for b in batch], 0),
+                    torch.tensor([b[4] for b in batch]),
+                    torch.tensor([b[5] for b in batch]))
 
         loader = DataLoader(_DS(), batch_size=self.batch_size, shuffle=True,
                             collate_fn=collate)
@@ -202,11 +208,14 @@ class XLMRModel(RelationModel):
         tr_sample = tr[:600]
         for epoch in range(self.epochs):
             self.module.train()
-            for ids, mask, at, isat in loader:
-                ids, mask = ids.to(self._device), mask.to(self._device)
+            for wid, wmask, nid, nmask, at, isat in loader:
+                wid, wmask = wid.to(self._device), wmask.to(self._device)
                 at, isat = at.to(self._device), isat.to(self._device)
                 opt.zero_grad()
-                at_log, isat_log = self.module(ids, mask)
+                at_log, isat_log = self.module(wid, wmask)
+                if self.dual_scope:                      # isAt head reads the narrow view
+                    nid, nmask = nid.to(self._device), nmask.to(self._device)
+                    _, isat_log = self.module(nid, nmask)
                 loss = ce(at_log, at, weight=at_w) + ce(isat_log, isat, weight=isat_w)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.module.parameters(), 1.0)
@@ -250,11 +259,20 @@ class XLMRModel(RelationModel):
         is_p = np.vstack(iss) if iss else np.empty((0, len(cfg.ISAT_LABELS)))
         return at_p, is_p
 
+    def _dual_infer(self, pairs):
+        """at probs from the WIDE view; isAt probs from the NARROW view (dual_scope)."""
+        def mk(scope):
+            return [marked_text(p, self.marker_scheme, self.add_date, self.add_kb, scope)
+                    for p in pairs]
+        at_p, is_p = self._infer(mk("wide"))
+        if self.dual_scope:
+            _, is_p = self._infer(mk("narrow"))
+        return at_p, is_p
+
     def _eval_global(self, pairs):
         from hipe.eval.metrics import macro_recall
         from hipe.models.base import apply_consistency
-        at_p, is_p = self._infer([marked_text(p, self.marker_scheme, self.add_date, self.add_kb)
-                                  for p in pairs])
+        at_p, is_p = self._dual_infer(pairs)
         at_pred, is_pred = [], []
         for a, s in zip(at_p, is_p):
             d = {"at": cfg.AT_LABELS[int(a.argmax())],
@@ -267,8 +285,7 @@ class XLMRModel(RelationModel):
         return (macro_recall(at_t, at_pred) + macro_recall(is_t, is_pred)) / 2
 
     def predict(self, pairs):
-        at_p, is_p = self._infer([marked_text(p, self.marker_scheme, self.add_date, self.add_kb)
-                                  for p in pairs])
+        at_p, is_p = self._dual_infer(pairs)
         out = []
         for a, s in zip(at_p, is_p):
             out.append({
