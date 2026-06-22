@@ -28,3 +28,18 @@ def test_kernel_metadata_enables_gpu_and_internet():
     assert m["is_private"] is True
     assert m["dataset_sources"] == []
     assert m["code_file"] == "run_kernel.py"
+
+
+def test_username_from_cli_parses_config_view(monkeypatch):
+    class _R:
+        stdout = ("Configuration values from /x\n- username: mayadeneva\n"
+                  "- auth_method: ACCESS_TOKEN\n")
+    monkeypatch.setattr(md.subprocess, "run", lambda *a, **k: _R())
+    assert md._username_from_cli() == "mayadeneva"
+
+
+def test_kaggle_username_falls_back_to_cli(monkeypatch, tmp_path):
+    monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
+    monkeypatch.setattr(md.Path, "home", classmethod(lambda cls: tmp_path))  # no kaggle.json
+    monkeypatch.setattr(md, "_username_from_cli", lambda: "mayadeneva")
+    assert md.kaggle_username() == "mayadeneva"

@@ -1,20 +1,47 @@
 # hipe/kaggle/metadata.py
 import json
 import os
+import subprocess
 from pathlib import Path
 
 DATASET_SLUG = "hipe-code"
+
+
+def _username_from_cli():
+    """Read the username the kaggle CLI is authenticated as.
+
+    Handles the modern ACCESS_TOKEN auth (~/.kaggle/access_token), which stores
+    no username/key json — but `kaggle config view` still reports the username.
+    """
+    try:
+        out = subprocess.run(["kaggle", "config", "view"],
+                             capture_output=True, text=True, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return None
+    for line in out.stdout.splitlines():
+        if "username:" in line:
+            name = line.split("username:", 1)[1].strip()
+            if name and name.lower() != "none":
+                return name
+    return None
 
 
 def kaggle_username() -> str:
     env = os.environ.get("KAGGLE_USERNAME")
     if env:
         return env
-    cfg = Path.home() / ".kaggle" / "kaggle.json"
+    cfg = Path.home() / ".kaggle" / "kaggle.json"      # legacy username/key file
     if cfg.exists():
-        return json.loads(cfg.read_text(encoding="utf-8"))["username"]
+        try:
+            return json.loads(cfg.read_text(encoding="utf-8"))["username"]
+        except (json.JSONDecodeError, KeyError):
+            pass
+    name = _username_from_cli()                          # modern ACCESS_TOKEN auth
+    if name:
+        return name
     raise RuntimeError(
-        "No Kaggle username: set $KAGGLE_USERNAME or create ~/.kaggle/kaggle.json")
+        "No Kaggle username: confirm `kaggle config view` shows a username, "
+        "or set $KAGGLE_USERNAME")
 
 
 def dataset_metadata(username: str, slug: str = DATASET_SLUG) -> dict:
