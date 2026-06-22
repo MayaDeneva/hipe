@@ -116,7 +116,7 @@ class XLMRModel(RelationModel):
         self._isat = _Target(cfg.ISAT_LABELS, model_name, max_length)
 
     def fit(self, train, dev=None):
-        if self.max_train:
+        if self.max_train is not None:
             train = train[:self.max_train]
         texts = [marked_text(p) for p in train]
         kw = dict(epochs=self.epochs, batch_size=self.batch_size,
