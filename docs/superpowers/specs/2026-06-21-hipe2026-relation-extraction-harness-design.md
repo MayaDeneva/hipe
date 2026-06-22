@@ -38,6 +38,8 @@ For each `(person, place)` pair in a historical document, predict two relations:
 
 ⚠️ **Caveat (EDA): large distribution shift between silver and gold.** Newspapers `at=TRUE` is 35% vs sandbox 14%, and `PROBABLE` is nearly absent in newspapers (10% vs 26%); `isAt=TRUE` 22% vs 10%. Naive concatenation will distort calibration toward the silver distribution — so weight/upsample deliberately, calibrate on a gold-only dev set, and treat "gold-only vs gold+silver vs reweighted" as explicit leaderboard experiments rather than assuming silver always helps.
 
+🚨 **Critical data overlap (verified): the sandbox is silver-labeled versions of the SAME documents as `newspapers/v1.0`.** 81 of 104 newspapers docs (and 961 of 1251 newspapers pairs, 77%) also appear in `sandbox/*-train`. So "train sandbox, eval newspapers-gold" leaks unless overlapping documents are removed from training. The **sandbox train/dev split is document-disjoint** (0 overlap) and safe. The harness now **auto-drops any train pair whose `doc_id` is in the dev set** in the explicit-`dev` path (mirroring the no-leakage guarantee of the internal split). First honest results (mpnet `embedding_svm`, leakage removed): newspapers-gold dev global **0.482** vs majority 0.417; sandbox-dev global **0.471** — a real but modest **+0.065** over majority. (The pre-guard 0.569 was inflated ~0.09 by leakage.)
+
 ## 2c. EDA findings (see `notebooks/01_eda.ipynb`)
 
 Headline numbers from 9,502 gold pairs (721 docs, en/de/fr; sandbox + newspapers v1.0):
