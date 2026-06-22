@@ -24,6 +24,13 @@ def test_encode_returns_row_per_text_in_order():
     assert out[0, 0] == 2 and out[1, 0] == 3
 
 
+def test_encode_empty_returns_empty():
+    fn, _ = _fake_encode_factory()
+    enc = EmbeddingEncoder(encode_fn=fn)
+    out = enc.encode([])
+    assert out.shape[0] == 0
+
+
 def test_encode_caches_and_dedupes(tmp_path):
     fn, calls = _fake_encode_factory()
     cache = tmp_path / "emb.pkl"

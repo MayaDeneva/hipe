@@ -138,6 +138,19 @@ def test_run_experiment_accepts_list_of_train_files(tmp_path):
     config = {"data": {"train": [str(FIX), str(dev_fix)], "dev": str(dev_fix)},
               "model": {"name": "majority"}}
     result = run_experiment(config, now="2026-06-22_130001", runs_root=tmp_path)
-    # train pairs = mini (3) + mini_dev (1) = 4; dev pairs = mini_dev (1)
+    # Both train files load: mini (3 pairs, docs d1/d2) + mini_dev (1 pair, doc e1) = 4 total.
+    # The leakage guard drops e1 from train (it's in dev), so n_train == 3.
     assert result["n_dev"] == 1
+    assert result["n_train"] == 3
     assert Path(result["run_dir"]).exists()
+
+
+def test_run_experiment_drops_dev_docs_from_train(tmp_path):
+    """Leakage guard: when dev=mini_dev (doc e1), that doc must be removed from train."""
+    dev_fix = FIX.parent / "mini_dev.jsonl"
+    config = {"data": {"train": [str(FIX), str(dev_fix)], "dev": str(dev_fix)},
+              "model": {"name": "majority"}}
+    result = run_experiment(config, now="2026-06-22_130002", runs_root=tmp_path)
+    # train=[FIX, dev_fix] loads 4 pairs (docs d1, d2, e1); guard removes e1 -> 3 pairs
+    assert result["n_train"] == 3
+    assert result["n_dev"] == 1

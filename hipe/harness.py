@@ -34,6 +34,8 @@ def run_experiment(config: dict, now: str, runs_root=None) -> dict:
     train = _load_pairs_spec(train_spec)
     if dev_spec is not None:
         dev = _load_pairs_spec(dev_spec)
+        dev_doc_ids = {p.doc_id for p in dev}
+        train = [p for p in train if p.doc_id not in dev_doc_ids]
         gold_sources = dev_spec
     else:
         dev_frac = data.get("dev_frac", 0.2)
@@ -41,6 +43,7 @@ def run_experiment(config: dict, now: str, runs_root=None) -> dict:
         train, dev = split_by_document(train, dev_frac=dev_frac, seed=seed)
         gold_sources = train_spec
 
+    n_train = len(train)
     model_cfg = dict(config["model"])
     name = model_cfg.pop("name")
     model = registry.get_model(name, **model_cfg)
@@ -68,7 +71,7 @@ def run_experiment(config: dict, now: str, runs_root=None) -> dict:
 
     manifest = {"model": name, "config": config, "config_hash": cfg_hash,
                 "now": now, "at_recall": at_recall, "isAt_recall": isat_recall,
-                "global": global_recall, "n_dev": len(dev),
+                "global": global_recall, "n_dev": len(dev), "n_train": n_train,
                 "consistency": consistency_mode}
     runs.write_manifest(run_dir, manifest)
     runs.append_leaderboard(runs_root, {
@@ -78,7 +81,8 @@ def run_experiment(config: dict, now: str, runs_root=None) -> dict:
         "global": round(global_recall, 4), "n_dev": len(dev), "notes": ""})
 
     return {"run_dir": str(run_dir), "at_recall": at_recall,
-            "isAt_recall": isat_recall, "global": global_recall, "n_dev": len(dev)}
+            "isAt_recall": isat_recall, "global": global_recall, "n_dev": len(dev),
+            "n_train": n_train}
 
 
 def _write_subset(sources, keep_doc_ids, out_path):

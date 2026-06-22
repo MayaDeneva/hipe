@@ -1,3 +1,6 @@
+# NOTE: sentence_transformers must NOT be imported at top level — it is imported
+# lazily inside _default_encode_fn so hipe.harness can load this module without
+# the ml extra installed.
 import hashlib
 import pickle
 from pathlib import Path
@@ -38,6 +41,8 @@ class EmbeddingEncoder:
 
     def encode(self, texts):
         texts = list(texts)
+        if not texts:
+            return np.empty((0, 0))
         unseen = [t for t in texts if self._key(t) not in self._cache]
         unique_unseen = list(dict.fromkeys(unseen))
         if unique_unseen:
