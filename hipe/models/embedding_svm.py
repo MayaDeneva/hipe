@@ -46,25 +46,33 @@ class EmbeddingSVM(RelationModel):
     name = "embedding_svm"
 
     def __init__(self, model_name=DEFAULT_MODEL, C=1.0, use_structural=False,
-                 cache_path=None, _encoder=None):
+                 use_kb=False, cache_path=None, _encoder=None):
         if _encoder is not None:
             self.encoder = _encoder
         else:
             self.encoder = EmbeddingEncoder(
                 model_name, cache_path=cache_path or _cache_path(model_name))
         self.use_structural = use_structural
+        self.use_kb = use_kb
         self.scaler = None
         self._at = _Head(C)
         self._isat = _Head(C)
 
     def _features(self, pairs, fit_scaler=False):
         X = np.asarray(self.encoder.encode([pair_text(p) for p in pairs]))
-        if not self.use_structural:
+        extra = []
+        if self.use_structural:
+            from hipe.features.linguistic import linguistic_features, STRUCT_KEYS
+            extra.append(np.array([[linguistic_features(p).get(k, 0)
+                                    for k in STRUCT_KEYS] for p in pairs], dtype=float))
+        if self.use_kb:
+            from hipe.features.kb import kb_features, KB_KEYS
+            kk = [k for k in KB_KEYS if k != "kb_min_dist_km"]  # log_dist is scale-friendly
+            extra.append(np.array([[kb_features(p).get(k, 0) for k in kk]
+                                   for p in pairs], dtype=float))
+        if not extra:
             return X
-        from hipe.features.linguistic import linguistic_features, STRUCT_KEYS
-        struct = np.array([[linguistic_features(p).get(k, 0) for k in STRUCT_KEYS]
-                           for p in pairs], dtype=float)
-        X = np.hstack([X, struct])
+        X = np.hstack([X] + extra)
         if fit_scaler:
             self.scaler = StandardScaler().fit(X)
         return self.scaler.transform(X)
