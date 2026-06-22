@@ -13,14 +13,23 @@ os.chdir(WORK)
 # 1. clone the project repo (internet enabled)
 subprocess.run(["git", "clone", "{repo_url}", CODE], check=True)
 
-# 2. install the package with the ml extra
-subprocess.run([sys.executable, "-m", "pip", "install", CODE + "[ml]"], check=True)
+# 2. pin Kaggle's pre-installed torch (built for its GPU, e.g. P100/sm_60) so the
+#    pip install below does NOT upgrade it to a build that drops older GPU support
+ver = subprocess.run(
+    [sys.executable, "-c", "import torch; print(torch.__version__.split('+')[0])"],
+    capture_output=True, text=True, check=True).stdout.strip()
+con = WORK + "/constraints.txt"
+with open(con, "w") as f:
+    f.write("torch==" + ver + "\\n")
 
-# 3. clone the pinned HIPE data
+# 3. install the package with the ml extra, keeping Kaggle's torch
+subprocess.run([sys.executable, "-m", "pip", "install", "-c", con, CODE + "[ml]"], check=True)
+
+# 4. clone the pinned HIPE data
 subprocess.run(["git", "clone", "{data_repo}", "data/raw/HIPE-2026-data"], check=True)
 subprocess.run(["git", "-C", "data/raw/HIPE-2026-data", "checkout", "{pinned}"], check=True)
 
-# 4. run the harness; outputs (run folder + leaderboard) land in /kaggle/working/runs
+# 5. run the harness; outputs (run folder + leaderboard) land in /kaggle/working/runs
 os.environ["HIPE_RUNS_DIR"] = WORK + "/runs"
 subprocess.run([sys.executable, "-m", "hipe.cli", "run", CODE + "/{config_rel}"], check=True)
 '''
