@@ -7,6 +7,7 @@ from hipe.data.pairs import load_pairs, pair_key
 from hipe.data.split import split_by_document
 from hipe.data.submission import write_submission
 from hipe.models import baselines  # noqa: F401  (registers majority/random)
+from hipe.models import embedding_svm  # noqa: F401  (registers embedding_svm)
 from hipe.models import registry
 from hipe.models.base import apply_consistency
 from hipe.eval.scorer import score_files
