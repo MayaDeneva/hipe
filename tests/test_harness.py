@@ -118,3 +118,26 @@ def test_harness_leaderboard_matches_official_scorer_when_pred_class_absent_from
     official = score_files(pred_dir / "dev_gold.jsonl", pred_dir / "dev.jsonl")
     assert round(result["global"], 6) == round(official["global"]["macro_recall"], 6)
     assert round(result["at_recall"], 6) == round(official["at"]["macro_recall"], 6)
+
+
+def test_run_experiment_uses_explicit_dev_file(tmp_path):
+    # train on mini fixture, validate on the separate dev fixture
+    dev_fix = FIX.parent / "mini_dev.jsonl"
+    config = {"data": {"train": str(FIX), "dev": str(dev_fix)},
+              "model": {"name": "majority"}}
+    result = run_experiment(config, now="2026-06-22_130000", runs_root=tmp_path)
+    from hipe.data.load import read_jsonl
+    rows = read_jsonl(Path(result["run_dir"]) / "predictions" / "dev_gold.jsonl")
+    # dev gold comes from the dev file (doc e1), NOT from the train fixture
+    assert [r["document_id"] for r in rows] == ["e1"]
+    assert result["n_dev"] == 1
+
+
+def test_run_experiment_accepts_list_of_train_files(tmp_path):
+    dev_fix = FIX.parent / "mini_dev.jsonl"
+    config = {"data": {"train": [str(FIX), str(dev_fix)], "dev": str(dev_fix)},
+              "model": {"name": "majority"}}
+    result = run_experiment(config, now="2026-06-22_130001", runs_root=tmp_path)
+    # train pairs = mini (3) + mini_dev (1) = 4; dev pairs = mini_dev (1)
+    assert result["n_dev"] == 1
+    assert Path(result["run_dir"]).exists()

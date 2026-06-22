@@ -13,14 +13,32 @@ from hipe.eval.scorer import score_files
 from hipe.runs import registry as runs
 
 
+def _as_paths(spec) -> list:
+    return [spec] if isinstance(spec, str) else list(spec)
+
+
+def _load_pairs_spec(spec) -> list:
+    pairs = []
+    for path in _as_paths(spec):
+        pairs.extend(load_pairs(path))
+    return pairs
+
+
 def run_experiment(config: dict, now: str, runs_root=None) -> dict:
     runs_root = Path(runs_root) if runs_root is not None else cfg.RUNS_DIR
-    train_path = config["data"]["train"]
-    dev_frac = config["data"].get("dev_frac", 0.2)
-    seed = config["data"].get("seed", 0)
+    data = config["data"]
+    train_spec = data["train"]
+    dev_spec = data.get("dev")
 
-    pairs = load_pairs(train_path)
-    train, dev = split_by_document(pairs, dev_frac=dev_frac, seed=seed)
+    train = _load_pairs_spec(train_spec)
+    if dev_spec is not None:
+        dev = _load_pairs_spec(dev_spec)
+        gold_sources = dev_spec
+    else:
+        dev_frac = data.get("dev_frac", 0.2)
+        seed = data.get("seed", 0)
+        train, dev = split_by_document(train, dev_frac=dev_frac, seed=seed)
+        gold_sources = train_spec
 
     model_cfg = dict(config["model"])
     name = model_cfg.pop("name")
@@ -38,9 +56,8 @@ def run_experiment(config: dict, now: str, runs_root=None) -> dict:
     pred_dir = run_dir / "predictions"
     pred_dir.mkdir(parents=True, exist_ok=True)
 
-    # write a dev gold file (only dev docs) + a dev submission, then score
     dev_docs = {p.doc_id for p in dev}
-    _write_subset(train_path, dev_docs, pred_dir / "dev_gold.jsonl")
+    _write_subset(gold_sources, dev_docs, pred_dir / "dev_gold.jsonl")
     write_submission(pred_dir / "dev_gold.jsonl", preds, pred_dir / "dev.jsonl")
 
     metrics = score_files(pred_dir / "dev_gold.jsonl", pred_dir / "dev.jsonl")
@@ -55,7 +72,7 @@ def run_experiment(config: dict, now: str, runs_root=None) -> dict:
     runs.write_manifest(run_dir, manifest)
     runs.append_leaderboard(runs_root, {
         "run_id": run_dir.name, "timestamp": now, "model": name,
-        "config_hash": cfg_hash, "data": str(train_path),
+        "config_hash": cfg_hash, "data": str(train_spec),
         "at_recall": round(at_recall, 4), "isAt_recall": round(isat_recall, 4),
         "global": round(global_recall, 4), "n_dev": len(dev), "notes": ""})
 
@@ -63,8 +80,11 @@ def run_experiment(config: dict, now: str, runs_root=None) -> dict:
             "isAt_recall": isat_recall, "global": global_recall, "n_dev": len(dev)}
 
 
-def _write_subset(src_path, keep_doc_ids, out_path):
-    rows = [r for r in read_jsonl(src_path) if str(r["document_id"]) in keep_doc_ids]
+def _write_subset(sources, keep_doc_ids, out_path):
+    rows = []
+    for src in _as_paths(sources):
+        rows.extend(r for r in read_jsonl(src)
+                    if str(r["document_id"]) in keep_doc_ids)
     for r in rows:
         for sp in r.get("sampled_pairs", []):
             sp["at"] = cfg.norm_label(sp.get("at"), "at")
