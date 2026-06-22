@@ -7,7 +7,7 @@ data:
     - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-train-en.jsonl
     - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-train-de.jsonl
     - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-train-fr.jsonl
-consistency: off
+consistency: "off"
 model:
   name: llm_lookup
   label_source:
