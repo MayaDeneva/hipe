@@ -35,6 +35,8 @@ subprocess.run(["git", "-C", "data/raw/HIPE-2026-data", "checkout", "{pinned}"],
 
 # 5. run the harness; outputs (run folder + leaderboard) land in /kaggle/working/runs
 os.environ["HIPE_RUNS_DIR"] = WORK + "/runs"
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"   # Kaggle renders tqdm badly
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 subprocess.run([sys.executable, "-m", "hipe.cli", "run", CODE + "/{config_rel}"], check=True)
 '''
 

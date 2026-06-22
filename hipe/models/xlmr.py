@@ -6,6 +6,20 @@ from hipe.models import registry
 from hipe.features.markers import marked_text, MARKER_TOKENS
 
 
+def _quiet_hf():
+    """Silence HuggingFace download bars + verbose logs (Kaggle renders tqdm badly)."""
+    try:
+        from transformers.utils import logging as hf_logging
+        hf_logging.set_verbosity_error()
+    except Exception:
+        pass
+    try:
+        from huggingface_hub.utils import disable_progress_bars
+        disable_progress_bars()
+    except Exception:
+        pass
+
+
 def _class_weights(labels, label_list):
     """Inverse-frequency (balanced) weights aligned to label_list order."""
     import torch
@@ -69,6 +83,7 @@ class XLMRModel(RelationModel):
         from torch.utils.data import DataLoader, Dataset
         from transformers import AutoTokenizer, set_seed
         from hipe.data.split import split_by_document
+        _quiet_hf()
         if self.max_train is not None:
             train = train[:self.max_train]
         set_seed(self.seed)
