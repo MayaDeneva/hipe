@@ -9,6 +9,7 @@ from hipe.data.submission import write_submission
 from hipe.models import baselines  # noqa: F401  (registers majority/random)
 from hipe.models import embedding_svm  # noqa: F401  (registers embedding_svm)
 from hipe.models import lookup  # noqa: F401  (registers llm_lookup)
+from hipe.models import xlmr  # noqa: F401  (registers xlmr)
 from hipe.models import registry
 from hipe.models.base import apply_consistency
 from hipe.eval.scorer import score_files
