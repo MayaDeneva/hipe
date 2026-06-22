@@ -12,3 +12,9 @@ runs/**/manifest.json
 runs/**/*.pkl
 !runs/leaderboard.csv
 *.egg-info/
+
+# secrets — never commit (repo is public)
+.env
+*.env
+kaggle.json
+.kaggle/
