@@ -3,8 +3,8 @@ import pytest
 from hipe.data.schema import Entity, Pair
 
 
-def _pair(at, isat, ctx):
-    return Pair(doc_id="d", person=Entity("p", "person", ["Joe"]),
+def _pair(at, isat, ctx, doc="d"):
+    return Pair(doc_id=doc, person=Entity("p", "person", ["Joe"]),
                 place=Entity("l", "place", ["Essex"]), context=ctx,
                 language="en", pub_date=None, gold_at=at, gold_isat=isat)
 
@@ -29,8 +29,10 @@ def test_xlmr_fit_predict_pipeline_tiny_model():
     try:
         m = registry.get_model("xlmr", model_name="prajjwal1/bert-tiny",
                                 epochs=1, batch_size=4, max_length=32, seed=0)
-        train = ([_pair("TRUE", "TRUE", "Joe lived at Essex") for _ in range(6)] +
-                 [_pair("FALSE", "FALSE", "no relation here") for _ in range(6)])
+        train = ([_pair("TRUE", "TRUE", "Joe lived at Essex", doc="d%d" % (i % 3))
+                  for i in range(6)] +
+                 [_pair("FALSE", "FALSE", "no relation here", doc="d%d" % (i % 3))
+                  for i in range(6)])
         m.fit(train)
         preds = m.predict([_pair("?", "?", "Joe lived at Essex")])
     except Exception as exc:  # offline / model unavailable

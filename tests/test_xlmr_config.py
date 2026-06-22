@@ -18,4 +18,4 @@ def test_xlmr_full_config_valid():
     assert c["model"]["name"] == "xlmr"
     assert all("sandbox" in p for p in c["data"]["train"])
     assert all("newspapers" in p for p in c["data"]["dev"])
-    assert c["model"]["epochs"] == 5
+    assert c["model"]["epochs"] == 8
