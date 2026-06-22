@@ -28,18 +28,20 @@ def _class_weights(labels, label_list):
     return torch.tensor(w, dtype=torch.float)
 
 
-def _build_module(model_name, n_at, n_isat, vocab_size, dropout):
-    """Shared encoder + two RoBERTa-style classification heads over [CLS]."""
+def _build_module(model_name, n_at, n_isat, vocab_size, dropout, e1_id, e2_id):
+    """Shared encoder; classify from [CLS] + h([E1]) + h([E2]) (entity-marker
+    pooling, R-BERT/MTB style) so the heads see the two marked entities directly,
+    not just a whole-sequence summary."""
     import torch
     import torch.nn as nn
     from transformers import AutoModel
 
     class _Head(nn.Module):
-        def __init__(self, h, n):
+        def __init__(self, hin, n):
             super().__init__()
-            self.dense = nn.Linear(h, h)
+            self.dense = nn.Linear(hin, hin)
             self.dropout = nn.Dropout(dropout)
-            self.out = nn.Linear(h, n)
+            self.out = nn.Linear(hin, n)
 
         def forward(self, x):
             x = torch.tanh(self.dense(self.dropout(x)))
@@ -51,13 +53,25 @@ def _build_module(model_name, n_at, n_isat, vocab_size, dropout):
             self.encoder = AutoModel.from_pretrained(model_name)
             self.encoder.resize_token_embeddings(vocab_size)
             h = self.encoder.config.hidden_size
-            self.at_head = _Head(h, n_at)
-            self.isat_head = _Head(h, n_isat)
+            self.e1_id, self.e2_id = e1_id, e2_id
+            self.at_head = _Head(3 * h, n_at)
+            self.isat_head = _Head(3 * h, n_isat)
+
+        @staticmethod
+        def _pos(input_ids, marker_id):
+            # first index of the marker per row; fall back to 0 ([CLS]) if absent
+            mask = input_ids == marker_id
+            idx = mask.float().argmax(dim=1).long()
+            return torch.where(mask.any(dim=1), idx, torch.zeros_like(idx))
 
         def forward(self, input_ids, attention_mask):
             out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
-            cls = out.last_hidden_state[:, 0]                    # [CLS]
-            return self.at_head(cls), self.isat_head(cls)
+            H = out.last_hidden_state
+            b = torch.arange(H.size(0), device=H.device)
+            rep = torch.cat([H[:, 0],
+                             H[b, self._pos(input_ids, self.e1_id)],
+                             H[b, self._pos(input_ids, self.e2_id)]], dim=-1)
+            return self.at_head(rep), self.isat_head(rep)
 
     return _MultiTaskXLMR()
 
@@ -113,9 +127,12 @@ class XLMRModel(RelationModel):
         self.tok = AutoTokenizer.from_pretrained(self.model_name)
         self.tok.add_special_tokens({"additional_special_tokens": MARKER_TOKENS})
         enc = self.tok(texts, truncation=True, max_length=self.max_length)
+        e1_id = self.tok.convert_tokens_to_ids("[E1]")
+        e2_id = self.tok.convert_tokens_to_ids("[E2]")
 
         self.module = _build_module(self.model_name, len(cfg.AT_LABELS),
-                                    len(cfg.ISAT_LABELS), len(self.tok), self.dropout)
+                                    len(cfg.ISAT_LABELS), len(self.tok),
+                                    self.dropout, e1_id, e2_id)
         self._device = "cuda" if torch.cuda.is_available() else "cpu"
         self.module.to(self._device)
 
