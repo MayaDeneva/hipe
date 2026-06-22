@@ -1,4 +1,5 @@
 import json
+import zipfile
 from pathlib import Path
 from hipe.kaggle.export import stage_job
 
@@ -20,9 +21,12 @@ def test_stage_job_builds_bundle(tmp_path, monkeypatch):
     job = stage_job("configs/xlmr.yaml", staging, repo)
 
     code = Path(job["code"]); kernel = Path(job["kernel"])
-    assert (code / "hipe" / "__init__.py").exists()
-    assert (code / "configs" / "xlmr.yaml").exists()
-    assert (code / "pyproject.toml").exists()
+    # bundle.zip exists and contains pyproject.toml and hipe/__init__.py
+    assert (code / "bundle.zip").exists()
+    with zipfile.ZipFile(code / "bundle.zip") as z:
+        names = z.namelist()
+    assert "pyproject.toml" in names
+    assert "hipe/__init__.py" in names
     dsmeta = json.loads((code / "dataset-metadata.json").read_text())
     assert dsmeta["id"] == "alice/hipe-code"
     assert (kernel / "run_kernel.py").exists()

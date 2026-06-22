@@ -13,11 +13,9 @@ def _run(cmd, **kw):
 def push_dataset(code_dir):
     """Create the dataset, or push a new version if it already exists."""
     try:
-        return _run(["kaggle", "datasets", "version", "-p", str(code_dir),
-                     "-m", "update", "--dir-mode", "zip"])
+        return _run(["kaggle", "datasets", "version", "-p", str(code_dir), "-m", "update"])
     except subprocess.CalledProcessError:
-        return _run(["kaggle", "datasets", "create", "-p", str(code_dir),
-                     "--dir-mode", "zip"])
+        return _run(["kaggle", "datasets", "create", "-p", str(code_dir)])
 
 
 def push_kernel(kernel_dir):
