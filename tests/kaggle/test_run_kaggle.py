@@ -4,10 +4,10 @@ from hipe.kaggle import bridge
 
 def test_run_kaggle_full_flow(tmp_path, monkeypatch):
     events = []
+    monkeypatch.setattr(bridge, "repo_url", lambda r: "https://github.com/u/r.git")
     monkeypatch.setattr(bridge.export, "stage_job",
-                        lambda c, s, r: {"code": "C", "kernel": "K",
-                                         "kernel_id": "alice/hipe-run-xlmr"})
-    monkeypatch.setattr(bridge, "push_dataset", lambda d: events.append(("ds", d)))
+                        lambda c, s, url: {"kernel": "K",
+                                           "kernel_id": "alice/hipe-run-xlmr"})
     monkeypatch.setattr(bridge, "push_kernel", lambda d: events.append(("kn", d)))
     statuses = iter(["running", "running", "complete"])
     monkeypatch.setattr(bridge, "kernel_status", lambda kid: next(statuses))
@@ -22,16 +22,16 @@ def test_run_kaggle_full_flow(tmp_path, monkeypatch):
                                poll_interval=0, sleep=lambda s: None)
     assert result["kernel_id"] == "alice/hipe-run-xlmr"
     assert result["runs"] == ["2026-06-22_120000_xlmr_abcd1234"]
-    assert ("ds", "C") in events and ("kn", "K") in events
+    assert ("kn", "K") in events
     assert ("dl", "alice/hipe-run-xlmr") in events
 
 
 def test_run_kaggle_raises_on_kernel_error(tmp_path, monkeypatch):
     import pytest
+    monkeypatch.setattr(bridge, "repo_url", lambda r: "https://github.com/u/r.git")
     monkeypatch.setattr(bridge.export, "stage_job",
-                        lambda c, s, r: {"code": "C", "kernel": "K",
-                                         "kernel_id": "alice/x"})
-    monkeypatch.setattr(bridge, "push_dataset", lambda d: None)
+                        lambda c, s, url: {"kernel": "K",
+                                           "kernel_id": "alice/x"})
     monkeypatch.setattr(bridge, "push_kernel", lambda d: None)
     monkeypatch.setattr(bridge, "kernel_status", lambda kid: "error")
     with pytest.raises(RuntimeError):
@@ -43,10 +43,10 @@ def test_run_kaggle_raises_on_kernel_error(tmp_path, monkeypatch):
 
 def test_run_kaggle_raises_on_timeout(tmp_path, monkeypatch):
     import pytest
+    monkeypatch.setattr(bridge, "repo_url", lambda r: "https://github.com/u/r.git")
     monkeypatch.setattr(bridge.export, "stage_job",
-                        lambda c, s, r: {"code": "C", "kernel": "K",
-                                         "kernel_id": "alice/x"})
-    monkeypatch.setattr(bridge, "push_dataset", lambda d: None)
+                        lambda c, s, url: {"kernel": "K",
+                                           "kernel_id": "alice/x"})
     monkeypatch.setattr(bridge, "push_kernel", lambda d: None)
     monkeypatch.setattr(bridge, "kernel_status", lambda kid: "running")  # never completes
     with pytest.raises(TimeoutError):

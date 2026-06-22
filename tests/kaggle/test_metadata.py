@@ -26,5 +26,5 @@ def test_kernel_metadata_enables_gpu_and_internet():
     assert m["enable_internet"] is True
     assert m["kernel_type"] == "script"
     assert m["is_private"] is True
-    assert m["dataset_sources"] == ["alice/hipe-code"]
+    assert m["dataset_sources"] == []
     assert m["code_file"] == "run_kernel.py"

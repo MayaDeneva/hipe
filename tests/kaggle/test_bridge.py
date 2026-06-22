@@ -22,20 +22,10 @@ def test_push_kernel_command(monkeypatch):
     assert rec.calls[0] == ["kaggle", "kernels", "push", "-p", "/tmp/k"]
 
 
-def test_push_dataset_versions_then_creates_on_failure(monkeypatch):
-    # version fails (dataset absent) -> falls back to create
-    calls = []
-
-    def fake(cmd, **kw):
-        calls.append(cmd)
-        if cmd[1:3] == ["datasets", "version"]:
-            raise subprocess.CalledProcessError(1, cmd)
-        return type("R", (), {"stdout": "", "returncode": 0})()
-
-    monkeypatch.setattr(bridge, "_run", fake)
-    bridge.push_dataset("/tmp/code")
-    assert calls[0][1:3] == ["datasets", "version"]
-    assert calls[1][1:3] == ["datasets", "create"]
+def test_repo_url(monkeypatch):
+    fake_result = type("R", (), {"stdout": "https://github.com/u/r.git\n", "returncode": 0})()
+    monkeypatch.setattr(bridge, "_run", lambda cmd, **kw: fake_result)
+    assert bridge.repo_url("/repo") == "https://github.com/u/r.git"
 
 
 def test_kernel_status_parses(monkeypatch):

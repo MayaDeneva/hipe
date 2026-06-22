@@ -10,12 +10,9 @@ def _run(cmd, **kw):
     return subprocess.run(cmd, check=True, capture_output=True, text=True, **kw)
 
 
-def push_dataset(code_dir):
-    """Create the dataset, or push a new version if it already exists."""
-    try:
-        return _run(["kaggle", "datasets", "version", "-p", str(code_dir), "-m", "update"])
-    except subprocess.CalledProcessError:
-        return _run(["kaggle", "datasets", "create", "-p", str(code_dir)])
+def repo_url(repo_root) -> str:
+    return _run(["git", "-C", str(repo_root), "config", "--get",
+                 "remote.origin.url"]).stdout.strip()
 
 
 def push_kernel(kernel_dir):
@@ -41,8 +38,8 @@ def download_output(kernel_id, dest):
 def run_kaggle(config_path, repo_root, runs_root, staging_dir, *,
                poll_interval=30, max_polls=240, sleep=None) -> dict:
     sleep = sleep or _time.sleep
-    job = export.stage_job(config_path, staging_dir, repo_root)
-    push_dataset(job["code"])
+    url = repo_url(repo_root)
+    job = export.stage_job(config_path, staging_dir, url)
     push_kernel(job["kernel"])
     for _ in range(max_polls):
         status = kernel_status(job["kernel_id"])

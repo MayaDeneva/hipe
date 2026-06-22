@@ -1,36 +1,19 @@
 import json
-import zipfile
 from pathlib import Path
 from hipe.kaggle.export import stage_job
 
 
-def _fake_repo(root):
-    (root / "hipe").mkdir()
-    (root / "hipe" / "__init__.py").write_text("")
-    (root / "configs").mkdir()
-    (root / "configs" / "xlmr.yaml").write_text("model:\n  name: xlmr\n")
-    (root / "scripts").mkdir()
-    (root / "scripts" / "fetch_data.py").write_text("# fetch\n")
-    (root / "pyproject.toml").write_text("[project]\nname='hipe'\n")
-
-
-def test_stage_job_builds_bundle(tmp_path, monkeypatch):
+def test_stage_job_builds_kernel(tmp_path, monkeypatch):
     monkeypatch.setenv("KAGGLE_USERNAME", "alice")
-    repo = tmp_path / "repo"; repo.mkdir(); _fake_repo(repo)
     staging = tmp_path / "stage"
-    job = stage_job("configs/xlmr.yaml", staging, repo)
+    job = stage_job("configs/xlmr.yaml", staging, "https://github.com/u/r.git")
 
-    code = Path(job["code"]); kernel = Path(job["kernel"])
-    # bundle.zip exists and contains pyproject.toml and hipe/__init__.py
-    assert (code / "bundle.zip").exists()
-    with zipfile.ZipFile(code / "bundle.zip") as z:
-        names = z.namelist()
-    assert "pyproject.toml" in names
-    assert "hipe/__init__.py" in names
-    dsmeta = json.loads((code / "dataset-metadata.json").read_text())
-    assert dsmeta["id"] == "alice/hipe-code"
+    kernel = Path(job["kernel"])
     assert (kernel / "run_kernel.py").exists()
+    script_text = (kernel / "run_kernel.py").read_text()
+    assert "https://github.com/u/r.git" in script_text
+    assert "configs/xlmr.yaml" in script_text
     kmeta = json.loads((kernel / "kernel-metadata.json").read_text())
-    assert kmeta["enable_gpu"] is True and kmeta["enable_internet"] is True
-    assert "configs/xlmr.yaml" in (kernel / "run_kernel.py").read_text()
+    assert kmeta["enable_gpu"] is True
+    assert kmeta["enable_internet"] is True
     assert job["kernel_id"] == "alice/hipe-run-xlmr"

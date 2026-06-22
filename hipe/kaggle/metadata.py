@@ -26,8 +26,7 @@ def kernel_slug(config_path) -> str:
     return ("hipe-run-" + Path(config_path).stem).replace("_", "-")
 
 
-def kernel_metadata(username, k_slug, code_file, dataset_slug=DATASET_SLUG,
-                    enable_gpu=True, enable_internet=True) -> dict:
+def kernel_metadata(username, k_slug, code_file, enable_gpu=True, enable_internet=True) -> dict:
     return {
         "id": f"{username}/{k_slug}",
         "title": k_slug,
@@ -37,7 +36,7 @@ def kernel_metadata(username, k_slug, code_file, dataset_slug=DATASET_SLUG,
         "is_private": True,
         "enable_gpu": enable_gpu,
         "enable_internet": enable_internet,
-        "dataset_sources": [f"{username}/{dataset_slug}"],
+        "dataset_sources": [],
         "competition_sources": [],
         "kernel_sources": [],
     }
