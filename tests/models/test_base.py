@@ -4,9 +4,28 @@ from hipe.models.base import RelationModel, apply_consistency
 from hipe.models import registry
 
 
-def test_apply_consistency_forces_at_true():
+def test_apply_consistency_soft_default_bumps_false_only():
+    # default mode is soft
     assert apply_consistency({"at": "FALSE", "isAt": "TRUE"})["at"] == "TRUE"
+    # PROBABLE is preserved under soft (the key fix)
+    assert apply_consistency({"at": "PROBABLE", "isAt": "TRUE"})["at"] == "PROBABLE"
+    # isAt FALSE never changes at
     assert apply_consistency({"at": "PROBABLE", "isAt": "FALSE"})["at"] == "PROBABLE"
+
+
+def test_apply_consistency_hard_forces_true():
+    assert apply_consistency({"at": "PROBABLE", "isAt": "TRUE"}, "hard")["at"] == "TRUE"
+    assert apply_consistency({"at": "FALSE", "isAt": "TRUE"}, "hard")["at"] == "TRUE"
+
+
+def test_apply_consistency_off_no_change():
+    assert apply_consistency({"at": "FALSE", "isAt": "TRUE"}, "off")["at"] == "FALSE"
+
+
+def test_apply_consistency_unknown_mode_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        apply_consistency({"at": "FALSE", "isAt": "TRUE"}, "bogus")
 
 
 def test_registry_roundtrip():

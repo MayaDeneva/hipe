@@ -36,6 +36,22 @@ For each `(person, place)` pair in a historical document, predict two relations:
 
 **Training-data lever — use the sandbox silver labels.** Train supervised models on **gold (human-reviewed `newspapers/v1.0`) + silver (`sandbox` LLM labels)**. A supervised model distilling the LLM's silver labels *plus* gold corrections, tuned to macro-recall with the consistency rule, routinely **beats the LLM it learned from** (more consistent, metric-aligned). Track gold-only vs gold+silver as separate runs to quantify the lift.
 
+⚠️ **Caveat (EDA): large distribution shift between silver and gold.** Newspapers `at=TRUE` is 35% vs sandbox 14%, and `PROBABLE` is nearly absent in newspapers (10% vs 26%); `isAt=TRUE` 22% vs 10%. Naive concatenation will distort calibration toward the silver distribution — so weight/upsample deliberately, calibrate on a gold-only dev set, and treat "gold-only vs gold+silver vs reweighted" as explicit leaderboard experiments rather than assuming silver always helps.
+
+🚨 **Critical data overlap (verified): the sandbox is silver-labeled versions of the SAME documents as `newspapers/v1.0`.** 81 of 104 newspapers docs (and 961 of 1251 newspapers pairs, 77%) also appear in `sandbox/*-train`. So "train sandbox, eval newspapers-gold" leaks unless overlapping documents are removed from training. The **sandbox train/dev split is document-disjoint** (0 overlap) and safe. The harness now **auto-drops any train pair whose `doc_id` is in the dev set** in the explicit-`dev` path (mirroring the no-leakage guarantee of the internal split). First honest results (mpnet `embedding_svm`, leakage removed): newspapers-gold dev global **0.482** vs majority 0.417; sandbox-dev global **0.471** — a real but modest **+0.065** over majority. (The pre-guard 0.569 was inflated ~0.09 by leakage.)
+
+## 2c. EDA findings (see `notebooks/01_eda.ipynb`)
+
+Headline numbers from 9,502 gold pairs (721 docs, en/de/fr; sandbox + newspapers v1.0):
+
+- **Class imbalance** — `at`: FALSE 59% / PROBABLE 24% / TRUE 17% (no nulls); `isAt`: FALSE 88% / TRUE 12% (7.4:1). → use **class weighting** in every classifier; macro-recall is the right metric.
+- **Consistency** — gold `isAt=TRUE ⇒ at≠FALSE` (TRUE 91%, PROBABLE 9%, FALSE 0%); drove the `soft`-default rule (§5.3).
+- **Explanations** — `at_explanation`/`isAt_explanation` are **100% empty** → no rationale distillation (§6.4b).
+- **QID coverage** — persons 37%, places 63%, very uneven by language → KG/entity-aware approaches deprioritized.
+- **Silver↔gold shift** — large (see §2b caveat) → reweight, don't naively mix.
+- **Mention findability** — ~100% exact after `normalize_text` (persons 99.95%, places 100%) → windowing is sound; fuzzy matching rarely needed.
+- **Structure** — median 16 pairs/doc (~5 persons × 6 places); de/fr docs ~3× longer than en → per-language handling matters for transformer truncation.
+
 ## 3. Key decisions
 
 | Decision | Choice | Rationale |
@@ -46,8 +62,8 @@ For each `(person, place)` pair in a historical document, predict two relations:
 | Compute | Mac (orchestration, classical ML, eval); Kaggle GPU (transformers); Ollama→Claude (LLM) | Matches available resources |
 | LLM client | `litellm` | Single client for both local Ollama and Claude API via a model string |
 | `at` / `isAt` | Two **independent** classifiers | Different label sets, different signals |
-| Consistency rule | `isAt == TRUE ⇒ at = TRUE` | Logical: present-in-context implies was-there; applied post-prediction to all models |
-| KG enrichment | Optional, off-by-default feature family | Empirically adds little (observed in prior `bz` project); keep only as an ablation |
+| Consistency rule | Configurable (`soft` default / `hard` / `off`); soft = `isAt==TRUE ∧ at==FALSE ⇒ at=TRUE` | EDA: gold `isAt=TRUE` is `at∈{TRUE,PROBABLE}`, never FALSE — the old hard rule wrongly clobbered PROBABLE 8.76% of the time. A/B the modes on the leaderboard |
+| KG enrichment | Optional, off-by-default feature family | Adds little (prior `bz` project) + EDA shows low/uneven QID coverage: persons 37% (en 24%, fr 29%, de 69%), places 63% — limited reach, esp. en/fr persons. Ablation only |
 | Reuse | Port `data/`, `enrich/`, `linking/`, `eval/metrics.py` from `bz/hipe2026` | Clean, already macro-recall-aware |
 | Training data | Gold (`newspapers/v1.0`) + silver (`sandbox` LLM labels); track gold-only vs gold+silver | Silver distillation + gold corrections beats the prompting-LLM baseline |
 | Bar to beat | Prompting-LLM baseline (not random) | The meaningful target; favors supervised fine-tuning |
@@ -146,13 +162,15 @@ class RelationModel(ABC):
 
 ### 5.3 Consistency rule
 
-A single post-prediction normalization, applied by the run protocol to **every** model's output before scoring and submission:
+A single post-prediction normalization, applied by the run protocol to **every** model's output before scoring and submission, with a config-selectable `mode` (default `soft`):
 
 ```
-if pred["isAt"] == "TRUE": pred["at"] = "TRUE"
+soft (default):  if pred["isAt"] == "TRUE" and pred["at"] == "FALSE": pred["at"] = "TRUE"   # leave PROBABLE
+hard:            if pred["isAt"] == "TRUE": pred["at"] = "TRUE"
+off:             no change
 ```
 
-Centralized so every approach benefits identically and the rule is tested once.
+**Rationale (from EDA of 9,502 gold pairs):** gold `isAt=TRUE` co-occurs with `at=TRUE` (1031) or `at=PROBABLE` (99) but **never `at=FALSE`**. So the gold-faithful constraint is `isAt=TRUE ⇒ at≠FALSE`, which `soft` enforces while preserving the valid PROBABLE combination; the original `hard` rule wrongly forced PROBABLE→TRUE in 8.76% of `isAt=TRUE` pairs (a rare, macro-recall-weighted class). The mode is recorded in each run's manifest and folded into the config hash, so `soft`/`hard`/`off` are A/B-comparable on the leaderboard. Centralized so every approach benefits identically and the rule is tested once.
 
 ### 5.4 Run protocol — `hipe run config.yaml`
 
@@ -224,7 +242,7 @@ Each commit run is also a frozen, browsable Kaggle **Notebook Version** (Output 
    This entity-marker family is the SOTA technique for relation *classification* and beats plain `[CLS]` fine-tuning. Trained on Kaggle GPU. (English SemEval F1 numbers ~89 do not transfer to noisy multilingual historical text — the technique transfers, not the score.)
 3b. **mLUKE** — entity-aware self-attention model (multilingual LUKE) as a separate model name. Higher cost; benefits from entity-linked inputs (Wikidata QIDs), which we have only partially (many `null`), so expected lift is bounded. Lower priority.
 4. **LLM (prompting)** — litellm few-shot / structured-output prompting (Ollama default, Claude fallback). No training.
-4b. **LLM fine-tuning (QLoRA)** — `models/llm_lora.py`: 4-bit QLoRA SFT of a multilingual decoder base (e.g. Qwen2.5-7B / Llama-3.1-8B / Gemma-2-9B / Mistral-7B) on Kaggle GPU, target = structured `at`/`isAt` labels, optionally distilling the dataset's `at_explanation` / `isAt_explanation` as rationales (supervision an encoder cannot use). The trained artifact is a small LoRA **adapter** ingested via the Kaggle bridge. **Inference** serves the adapter behind an OpenAI-compatible endpoint (vLLM / llama.cpp / Ollama) that the *same* litellm `llm/client.py` targets — no harness changes. Expected to be the strongest model on the `literaryworks` generalization set (Set B) and a high-accuracy ensemble member. **Efficiency caveat:** ~15–30× larger/slower than entity-marker XLM-R, which the competition's efficiency scoring penalizes — so it is the "best raw macro-recall / generalization" entry, with XLM-R as the efficient entry; the harness lets us submit and compare both.
+4b. **LLM fine-tuning (QLoRA)** — `models/llm_lora.py`: 4-bit QLoRA SFT of a multilingual decoder base (e.g. Qwen2.5-7B / Llama-3.1-8B / Gemma-2-9B / Mistral-7B) on Kaggle GPU, target = structured `at`/`isAt` labels. (Note: EDA found the `at_explanation` / `isAt_explanation` fields are **100% empty** in the released data, so rationale-distillation from gold is **not** available — drop that idea unless a future release populates them.) The trained artifact is a small LoRA **adapter** ingested via the Kaggle bridge. **Inference** serves the adapter behind an OpenAI-compatible endpoint (vLLM / llama.cpp / Ollama) that the *same* litellm `llm/client.py` targets — no harness changes. Expected to be the strongest model on the `literaryworks` generalization set (Set B) and a high-accuracy ensemble member. **Efficiency caveat:** ~15–30× larger/slower than entity-marker XLM-R, which the competition's efficiency scoring penalizes — so it is the "best raw macro-recall / generalization" entry, with XLM-R as the efficient entry; the harness lets us submit and compare both.
 5. **Ensembles** — voting + stacking over saved OOF/test predictions.
 6. **KG-enriched ablation** — classical ML + optional `features/kg.py`, to quantify (likely small) KG contribution.
 7. **Dependency-GCN ablation** — dependency-parse features / small GCN (A-GCN-style). Lowest priority: parses on OCR-noisy multilingual historical text are unreliable, so this is a final ablation, not a metric bet.

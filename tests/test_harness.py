@@ -44,6 +44,58 @@ def test_run_experiment_applies_consistency(tmp_path):
                 assert sp["at"] == "TRUE"
 
 
+def test_harness_consistency_soft_default_preserves_probable(tmp_path):
+    # Harness defaults to soft mode: PROBABLE is preserved when isAt==TRUE
+    from hipe.models import registry
+    from hipe.models.base import RelationModel
+    from hipe.data.load import read_jsonl
+
+    @registry.register("probable_isat_true_soft")
+    class ProbableIsatTrue(RelationModel):
+        name = "probable_isat_true_soft"
+        def fit(self, train, dev=None): pass
+        def predict(self, pairs):
+            return [{"at": "PROBABLE", "isAt": "TRUE"} for _ in pairs]
+
+    # No "consistency" key in config — should default to soft
+    config = {"data": {"train": str(FIX), "dev_frac": 1.0, "seed": 0},
+              "model": {"name": "probable_isat_true_soft"}}
+    result = run_experiment(config, now="2026-06-22_soft001", runs_root=tmp_path)
+    rows = read_jsonl(Path(result["run_dir"]) / "predictions" / "dev.jsonl")
+    for r in rows:
+        for sp in r["sampled_pairs"]:
+            if sp["isAt"] == "TRUE":
+                assert sp["at"] == "PROBABLE", (
+                    f"soft mode should preserve PROBABLE; got {sp['at']}"
+                )
+
+
+def test_harness_consistency_hard_forces_true(tmp_path):
+    # With consistency=hard, PROBABLE is forced to TRUE when isAt==TRUE
+    from hipe.models import registry
+    from hipe.models.base import RelationModel
+    from hipe.data.load import read_jsonl
+
+    @registry.register("probable_isat_true_hard")
+    class ProbableIsatTrueHard(RelationModel):
+        name = "probable_isat_true_hard"
+        def fit(self, train, dev=None): pass
+        def predict(self, pairs):
+            return [{"at": "PROBABLE", "isAt": "TRUE"} for _ in pairs]
+
+    config = {"data": {"train": str(FIX), "dev_frac": 1.0, "seed": 0},
+              "model": {"name": "probable_isat_true_hard"},
+              "consistency": "hard"}
+    result = run_experiment(config, now="2026-06-22_hard001", runs_root=tmp_path)
+    rows = read_jsonl(Path(result["run_dir"]) / "predictions" / "dev.jsonl")
+    for r in rows:
+        for sp in r["sampled_pairs"]:
+            if sp["isAt"] == "TRUE":
+                assert sp["at"] == "TRUE", (
+                    f"hard mode should force TRUE; got {sp['at']}"
+                )
+
+
 def test_harness_leaderboard_matches_official_scorer_when_pred_class_absent_from_gold(tmp_path):
     # A model that predicts PROBABLE (a class that may be absent from a gold slice)
     # must yield the SAME global the official scorer would, not the in-house metric.
@@ -66,3 +118,39 @@ def test_harness_leaderboard_matches_official_scorer_when_pred_class_absent_from
     official = score_files(pred_dir / "dev_gold.jsonl", pred_dir / "dev.jsonl")
     assert round(result["global"], 6) == round(official["global"]["macro_recall"], 6)
     assert round(result["at_recall"], 6) == round(official["at"]["macro_recall"], 6)
+
+
+def test_run_experiment_uses_explicit_dev_file(tmp_path):
+    # train on mini fixture, validate on the separate dev fixture
+    dev_fix = FIX.parent / "mini_dev.jsonl"
+    config = {"data": {"train": str(FIX), "dev": str(dev_fix)},
+              "model": {"name": "majority"}}
+    result = run_experiment(config, now="2026-06-22_130000", runs_root=tmp_path)
+    from hipe.data.load import read_jsonl
+    rows = read_jsonl(Path(result["run_dir"]) / "predictions" / "dev_gold.jsonl")
+    # dev gold comes from the dev file (doc e1), NOT from the train fixture
+    assert [r["document_id"] for r in rows] == ["e1"]
+    assert result["n_dev"] == 1
+
+
+def test_run_experiment_accepts_list_of_train_files(tmp_path):
+    dev_fix = FIX.parent / "mini_dev.jsonl"
+    config = {"data": {"train": [str(FIX), str(dev_fix)], "dev": str(dev_fix)},
+              "model": {"name": "majority"}}
+    result = run_experiment(config, now="2026-06-22_130001", runs_root=tmp_path)
+    # Both train files load: mini (3 pairs, docs d1/d2) + mini_dev (1 pair, doc e1) = 4 total.
+    # The leakage guard drops e1 from train (it's in dev), so n_train == 3.
+    assert result["n_dev"] == 1
+    assert result["n_train"] == 3
+    assert Path(result["run_dir"]).exists()
+
+
+def test_run_experiment_drops_dev_docs_from_train(tmp_path):
+    """Leakage guard: when dev=mini_dev (doc e1), that doc must be removed from train."""
+    dev_fix = FIX.parent / "mini_dev.jsonl"
+    config = {"data": {"train": [str(FIX), str(dev_fix)], "dev": str(dev_fix)},
+              "model": {"name": "majority"}}
+    result = run_experiment(config, now="2026-06-22_130002", runs_root=tmp_path)
+    # train=[FIX, dev_fix] loads 4 pairs (docs d1, d2, e1); guard removes e1 -> 3 pairs
+    assert result["n_train"] == 3
+    assert result["n_dev"] == 1

@@ -1,0 +1,14 @@
+data:
+  train:
+    - data/raw/HIPE-2026-data/data/sandbox/en-train.jsonl
+    - data/raw/HIPE-2026-data/data/sandbox/de-train.jsonl
+    - data/raw/HIPE-2026-data/data/sandbox/fr-train.jsonl
+  dev:
+    - data/raw/HIPE-2026-data/data/sandbox/en-dev.jsonl
+    - data/raw/HIPE-2026-data/data/sandbox/de-dev.jsonl
+    - data/raw/HIPE-2026-data/data/sandbox/fr-dev.jsonl
+consistency: soft
+model:
+  name: embedding_svm
+  model_name: sentence-transformers/paraphrase-multilingual-mpnet-base-v2
+  C: 1.0
