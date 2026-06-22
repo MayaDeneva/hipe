@@ -1,0 +1,228 @@
+# HIPE-2026 — Experiments Log
+
+End-to-end record of every experiment run for the person–place relation task
+(NLP course). For each (person, place) pair in a historical document we predict:
+
+- **`at`** ∈ {TRUE, PROBABLE, FALSE} — was the person *ever* at the place?
+- **`isAt`** ∈ {TRUE, FALSE} — are they there *in this text's context*?
+
+**Metric:** mean of the two per-target **macro-recall** scores ("global").
+All scores below use the **official vendored scorer** (parity by construction).
+
+---
+
+## 1. Setup & evaluation regimes
+
+Two evaluation regimes appear below; **they use different test sets and are not
+directly comparable to each other** — compare *within* a regime.
+
+| regime | train | test (dev) | n_dev | why |
+|---|---|---|---|---|
+| **cross-domain** | sandbox (silver) | all newspapers (gold) | 1251 | first setup; train-domain ≠ test-domain |
+| **in-domain** | sandbox + 70% newspapers | 30% held-out newspapers (gold) | 401 | realistic; mirrors the real competition |
+
+- **Splits are document-grouped** (no document spans train+test). A **leakage
+  guard** drops any train doc that appears in the dev set.
+- **Compute:** classical/feature models run locally (a dedicated `hipe` conda
+  env); transformers run on **Kaggle P100 GPU** via a clone-based kernel
+  (torch 2.4.1+cu121 pinned for Pascal `sm_60` support).
+
+---
+
+## 2. Three methodological findings (the "lessons")
+
+These shaped everything and are the most transferable results.
+
+### 2.1 The LLM baseline is label leakage, not a deployable model
+`llm_lookup` (the organizers' silver labels looked up) scores 0.65, **but only
+because the sandbox re-labels the *same documents* as the newspapers set**
+(~77% doc overlap). On genuinely unseen test docs its coverage → ~0. So it is a
+*reference bar*, not a model — and any ensemble that leans on it is inflated.
+
+### 2.2 The real ceiling is domain transfer, not the model
+Across **every** transformer base the *test* score sits at ~0.53–0.58 while the
+internal (sandbox) validation sits ~0.61. Regularization, R-BERT pooling, bigger
+models — all moved val but not test. **Training on the test domain is the single
+biggest lever** (§5).
+
+### 2.3 OCR noise is *not* an error driver
+Quantified in `notebooks/01_eda.ipynb`: misclassified pairs are **not**
+meaningfully noisier than correct ones (`at`: p=0.24 n.s.; `isAt`: p=0.01 but
+negligible effect ~0.009). A model *pretrained to be OCR-robust* (hmBERT, §6)
+also failed to win. ⇒ **Don't build OCR correction.**
+
+---
+
+## 3. Baselines (cross-domain, n=1251)
+
+| model | at | isAt | global | note |
+|---|---|---|---|---|
+| random | 0.319 | 0.494 | 0.406 | floor |
+| majority | 0.333 | 0.500 | 0.417 | floor |
+| embedding_svm (mpnet + LinearSVC) | 0.403 | 0.561 | **0.482** | strongest non-LLM baseline |
+| llm_lookup | 0.604 | 0.697 | **0.650** | leakage bar (§2.1) |
+
+---
+
+## 4. Transformer evolution — entity-marker pooling was the unlock
+
+XLM-R, shared encoder + 2 heads, class-weighted loss, doc-grouped internal val,
+early stopping + best checkpoint. **Cross-domain, n=1251:**
+
+| variant | global | finding |
+|---|---|---|
+| `[CLS]` pooling (v7/v8) | ~0.42 | **collapsed to majority** — couldn't learn |
+| **entity-marker pooling** (v9) | **0.538** | the unlock: train_macroR climbs 0.43→0.87, isAt finally ≠0.50 |
+| + weight-decay 0.01 + dropout 0.2 (v10) | 0.501 | regularization *hurt* (within run-variance + val/test gap) |
+| full **R-BERT** span pooling (v11) | 0.534 | raised val (0.573→0.608) but **not test** → §2.2 |
+| **xlm-roberta-large** + R-BERT, lr 2e-5 | 0.439 | **collapsed** — lr too high for 560M model |
+
+**Takeaway:** entity markers ([E1]…[/E1] / [E2]…[/E2]) + pooling the marked spans
+is what made the transformer work (0.42→0.54). Pooling refinements and
+regularization gave nothing on test.
+
+---
+
+## 5. Domain-transfer fix — in-domain training (the biggest lever)
+
+Added a harness `dev_holdout_frac`: document-split the newspapers, **add most to
+training**, hold out a slice as an in-domain test. **In-domain, n=401:**
+
+| model | cross-domain (old) | **in-domain (new)** | Δ |
+|---|---|---|---|
+| embedding_svm | 0.482 | **0.519** | +0.037 |
+| xlmr (base, R-BERT) | 0.538 | **0.561** | +0.023 |
+| llm_lookup | 0.650 | 0.635 | (doesn't train) |
+
+Both *learned* models rose once they saw the test domain — the domain-transfer
+signature. This is the realistic setup (the real competition trains on all data).
+
+---
+
+## 6. Stronger / domain-specific bases (in-domain, n=401)
+
+| base | global | finding |
+|---|---|---|
+| xlm-roberta-base | 0.561 | reference |
+| **xlm-roberta-large**, lr **1e-5** | **0.580** | best single learned model (lr fix vs the 2e-5 collapse); at→0.528 |
+| **hmBERT** (historical multilingual BERT) | 0.528 | domain-pretrained but **BERT-base (110M) < XLM-R-base (270M)** — capacity beat domain pretraining; also corroborates §2.3 |
+| mdeberta-v3-base | — | **blocked**: `.bin`-only weights; transformers-5.x needs torch≥2.6, which drops P100 |
+
+**Takeaway:** model *size* helped (large), domain-specific pretraining did not.
+
+---
+
+## 7. Feature / "linguistic" line — all dead ends
+
+Hypothesis: verbs + tense + proximity signal the relation. **Cross-domain, n=1251:**
+
+| model | global | vs embedding_svm (0.482) |
+|---|---|---|
+| linguistic: bag-of-verb-lemmas → XGBoost | 0.443 | worse |
+| linguistic: relation-span embedding → XGBoost | 0.434 | worse (XGBoost bad on dense embeddings) |
+| embedding_svm + structural feats + scaling | 0.438 | worse (scaling hurt; feats redundant) |
+
+The notebook (`notebooks/02_linguistic_analysis.ipynb`) confirmed the hypothesis
+is *real* — `has_pres` (present tense) is the top `isAt` feature — **but the
+multilingual embedding already encodes it**, so explicit features are redundant,
+and OCR-garbled "verbs" pollute the bag. **Conclusion: dropped this line.**
+
+---
+
+## 8. Knowledge-base enrichment (Wikidata)
+
+Idea (and your coordinate-proximity refinement): pull every geographic entity a
+person is linked to by *any* Wikidata property, compare to the mentioned place's
+coordinates — **direct link → `at`=TRUE, near → PROBABLE, far → FALSE.**
+
+| experiment (in-domain, n=401) | result |
+|---|---|
+| embedding_svm **+KB** (provided QIDs, 38% coverage) | `at` **+0.022** (0.463→0.485), global +0.010 |
+| **temporal-aware NIL linking** (coverage 38%→50%, +204 entities) | `at` lift **collapsed to +0.003** |
+
+**Takeaway:** KB helps `at` *only when links are correct*. Direct relations are
+sparse (~6% of pairs); proximity extends coverage but the signal is weak. NIL
+linking broadened coverage but **noisy links washed out the gain** — exactly the
+KGPool thesis ("statically adding all KG context = minimal/negative impact").
+**Link quality > coverage.**
+
+---
+
+## 9. Input-representation experiments (in-domain, n=401, xlmr-base)
+
+How we serialize (person, place, context) for the transformer. Each entity is
+wrapped in `[E1]…[/E1]` / `[E2]…[/E2]` (markers added to the vocab; R-BERT pools
+the spans). Variants tested vs the plain baseline (0.561):
+
+| variant | example | at | isAt | global |
+|---|---|---|---|---|
+| **plain** | `[E1] Napoleon [/E1] … [E2] Paris [/E2]` | 0.453 | 0.669 | **0.561** |
+| **typed** | `[E1] person Napoleon [/E1] … [E2] location Paris [/E2]` | 0.423 | 0.682 | 0.553 |
+| **+date** | `[DATE] 1820 [E1] Napoleon [/E1] …` | 0.438 | **0.697** | **0.568** |
+| **+KB gloss** | `[E1] Napoleon ( French emperor, 1769–1821 ) [/E1] …` | _pending_ | _pending_ | _pending_ |
+| **+date +KB gloss** | both of the above | _pending_ | _pending_ | _pending_ |
+
+**Findings so far:**
+- **Date helps `isAt`** (0.669→0.697, best of any run) — the model needs "when"
+  to judge "there *now*". Validated.
+- **Typed markers did NOT replicate Zhong & Chen** here (≈plain, slightly lower)
+  — with only 2 entity types + explicit markers, "person/location" adds little.
+- Debugging note: an early typed run was **bit-identical** to plain — `[PER]`
+  added as a *special token* gets the same id/embedding as `[E1]` and conveys no
+  type. Fix: inject the type as a **readable word** (`person`/`location`).
+- **KG-gloss injection** ("KGPool-lite", from KGPool 2021) adds entity
+  description + life-dates as text; the gloss also disambiguates OCR-mangled
+  names (e.g. "Wiiliam Blackstono" → its Wikidata description). Results pending.
+
+---
+
+## 10. Ensembling (in-domain, n=401, leakage-free 5-fold OOF CV)
+
+Stack the decorrelated base models with a LogReg meta-learner; scored OOF with
+the official scorer. `scripts/ensemble_compare.py`.
+
+| ensemble | global |
+|---|---|
+| **stacking: llm + embedding_svm + xlmr_base (probabilities)** | **0.6875** |
+| llm + embedding_svm only | 0.6805 |
+| stacking (hard labels, no probabilities) | 0.6720 |
+| stacking + xlmr_large (4 members) | 0.6705 |
+| weighted vote | 0.607 |
+
+**Findings:**
+- **Stacking beats the LLM bar** (0.6875 vs 0.635). Using xlmr **probabilities**
+  (not hard votes) lifted it 0.672→0.6875; `isAt`→0.771.
+- **Parsimony wins**: adding the (correlated) large model *hurt* — the small
+  meta-learner overfit on 401 pairs.
+- **Weighted vote underperforms** the best single — the learned combiner is what
+  wins, not naive voting.
+- Caveat (§2.1): the strongest member (`llm_lookup`) is the leakage bar, so this
+  number is not a deployable result on truly unseen test docs.
+
+---
+
+## 11. Headline results
+
+| | global | regime |
+|---|---|---|
+| stacking ensemble (llm + svm + xlmr, probs) | **0.6875** | in-domain n=401 |
+| llm_lookup (organizers' baseline / leakage bar) | 0.635 | in-domain n=401 |
+| xlm-roberta-large (best deployable single) | 0.580 | in-domain n=401 |
+| xlmr-base + date (best input variant so far) | 0.568 | in-domain n=401 |
+| embedding_svm + KB | 0.528 | in-domain n=401 |
+
+## 12. What worked vs what didn't
+
+**Worked:** entity-marker pooling (the unlock) · in-domain training (biggest
+lever) · model size (large @ lr 1e-5) · publication-date token (for `isAt`) ·
+stacking with probabilities (beat the bar) · KB features from *correct* QIDs (small `at` gain).
+
+**Didn't:** `[CLS]` pooling · regularization · typed markers · hand-crafted
+linguistic/structural features · OCR-robust pretraining (hmBERT) · NIL linking
+(noise) · weighted-vote ensembling · adding more/correlated members.
+
+---
+
+*Reproducibility:* every run is recorded in `runs/leaderboard.csv`; configs in
+`configs/`; analysis in `notebooks/`. Data/eval go through the vendored official
+scorer.
