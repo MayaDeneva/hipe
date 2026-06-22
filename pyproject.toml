@@ -14,6 +14,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+ml = ["sentence-transformers>=2.2"]
 
 [project.scripts]
 hipe = "hipe.cli:main"
