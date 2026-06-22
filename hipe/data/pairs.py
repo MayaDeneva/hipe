@@ -19,6 +19,35 @@ def context_for(text: str, mentions: list[str], margin: int = 200) -> str:
     return text[lo:hi]
 
 
+def _first_span(text, mentions):
+    for m in mentions:
+        s = fuzzy_find(text, m)
+        if s is not None:
+            return s
+    return None
+
+
+def context_for_pair(text: str, person_mentions, place_mentions,
+                     margin: int = 150, max_span: int = 600) -> str:
+    """Window guaranteeing BOTH entities are present. When they're within
+    max_span chars, span both (capturing the connecting text); when far apart,
+    take a dual window around each (joined by ' [...] '). Fixes the ~43% of pairs
+    where one entity fell outside a single window anchored on the other."""
+    ps = _first_span(text, person_mentions)
+    ls = _first_span(text, place_mentions)
+    if ps is None and ls is None:
+        return text[:2 * margin + 300]
+    if ps is None or ls is None:
+        s = ps or ls
+        return text[max(0, s[0] - margin):min(len(text), s[1] + margin)]
+    lo, hi = (ps, ls) if ps[0] <= ls[0] else (ls, ps)
+    if hi[1] - lo[0] <= max_span:
+        return text[max(0, lo[0] - margin):min(len(text), hi[1] + margin)]
+    w1 = text[max(0, ps[0] - margin):min(len(text), ps[1] + margin)]
+    w2 = text[max(0, ls[0] - margin):min(len(text), ls[1] + margin)]
+    return w1 + " [...] " + w2
+
+
 def _intern_entity(registry, entity_id, etype, mentions, qid) -> Entity:
     if entity_id not in registry:
         registry[entity_id] = Entity(entity_id=entity_id, etype=etype,
@@ -54,7 +83,7 @@ def load_pairs(path) -> list[Pair]:
                                    sp.get("loc_wikidata_QID"))
             pairs.append(Pair(
                 doc_id=str(raw["document_id"]), person=person, place=place,
-                context=context_for(text, person.mentions + place.mentions),
+                context=context_for_pair(text, person.mentions, place.mentions),
                 language=raw.get("language", ""), pub_date=raw.get("date"),
                 gold_at=config.norm_label(sp.get("at"), "at"),
                 gold_isat=config.norm_label(sp.get("isAt"), "isAt"),
