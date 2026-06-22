@@ -152,32 +152,37 @@ def load_glosses():
 
 
 def fetch_glosses(qids, max_len=60):
-    """Wikidata English description (+ instance-of fallback) per QID -> glosses.json.
-    A short gloss like 'French military leader' that we inject as text so the
-    transformer's attention can use (or ignore) the KG fact."""
+    """Wikidata descriptions per QID in en/de/fr -> glosses.json as
+    {qid: {lang: desc}}. Injected language-matched to the document (English
+    fallback), so a German article gets the German description."""
     g = load_glosses()
     todo = [q for q in qids if q and q not in g]
     for i in range(0, len(todo), 50):
         batch = todo[i:i + 50]
         vals = " ".join("wd:" + q for q in batch)
-        rows = _sparql("SELECT ?e ?desc ?typeLabel WHERE { VALUES ?e { %s } "
-                       "OPTIONAL { ?e schema:description ?desc . FILTER(LANG(?desc)='en') } "
-                       "OPTIONAL { ?e wdt:P31 ?t . ?t rdfs:label ?typeLabel . "
-                       "FILTER(LANG(?typeLabel)='en') } }" % vals)
-        agg = {q: {"desc": None, "types": []} for q in batch}
+        rows = _sparql("SELECT ?e ?desc WHERE { VALUES ?e { %s } "
+                       "?e schema:description ?desc . "
+                       "FILTER(LANG(?desc) IN ('en','de','fr')) }" % vals)
+        agg = {q: {} for q in batch}
         for b in rows:
             e = b["e"]["value"].split("/")[-1]
             if e not in agg:
                 continue
-            if "desc" in b and not agg[e]["desc"]:
-                agg[e]["desc"] = b["desc"]["value"]
-            if "typeLabel" in b:
-                t = b["typeLabel"]["value"]
-                if t not in agg[e]["types"]:
-                    agg[e]["types"].append(t)
+            lang = b["desc"].get("xml:lang", "en")
+            if lang not in agg[e]:
+                agg[e][lang] = b["desc"]["value"][:max_len]
         for q, a in agg.items():
-            gl = a["desc"] or (", ".join(a["types"][:2]) if a["types"] else "")
-            g[q] = gl[:max_len]
+            g[q] = a
         GLOSS_PATH.parent.mkdir(parents=True, exist_ok=True)
         json.dump(g, open(GLOSS_PATH, "w"), ensure_ascii=False)
     return g
+
+
+def gloss_for(qid, lang):
+    """language-matched description for a QID (English fallback)."""
+    d = load_glosses().get(qid)
+    if not d:
+        return ""
+    if isinstance(d, str):          # old single-language cache
+        return d
+    return d.get(lang) or d.get("en") or next(iter(d.values()), "")

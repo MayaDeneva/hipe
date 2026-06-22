@@ -69,11 +69,11 @@ def _wrap(markers, type_word, entity_text, mask, gloss=""):
     return f"{st} {inner} {en}"
 
 
-def _gloss_for(entity, add_kb):
+def _gloss_for(entity, add_kb, lang):
     if not add_kb or not entity.qid:
         return ""
-    from hipe.features.kb import load_glosses
-    return load_glosses().get(entity.qid, "")
+    from hipe.features.kb import gloss_for
+    return gloss_for(entity.qid, lang)
 
 
 def marked_text(pair, scheme="plain", add_date=False, add_kb=False) -> str:
@@ -84,8 +84,8 @@ def marked_text(pair, scheme="plain", add_date=False, add_kb=False) -> str:
     lang = pair.language
     ptw = _type_word("person", lang) if use_type else ""
     ltw = _type_word("place", lang) if use_type else ""
-    pgl = _gloss_for(pair.person, add_kb)
-    lgl = _gloss_for(pair.place, add_kb)
+    pgl = _gloss_for(pair.person, add_kb, lang)
+    lgl = _gloss_for(pair.place, add_kb, lang)
     text = pair.context
     pspan = _locate(text, pair.person.mentions)
     lspan = _locate(text, pair.place.mentions)
