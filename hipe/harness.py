@@ -75,6 +75,14 @@ def run_experiment(config: dict, now: str, runs_root=None) -> dict:
     _write_subset(gold_sources, dev_docs, pred_dir / "dev_gold.jsonl")
     write_submission(pred_dir / "dev_gold.jsonl", preds, pred_dir / "dev.jsonl")
 
+    # per-pair class probabilities (null for models that don't emit them) — used
+    # as richer stacking features than hard labels.
+    with open(pred_dir / "probas.jsonl", "w") as f:
+        for p, pred in zip(dev, raw_preds):
+            f.write(json.dumps({"doc_id": p.doc_id, "pair_key": pair_key(p),
+                                "at_proba": pred.get("at_proba"),
+                                "isAt_proba": pred.get("isAt_proba")}) + "\n")
+
     metrics = score_files(pred_dir / "dev_gold.jsonl", pred_dir / "dev.jsonl")
     at_recall = metrics["at"]["macro_recall"]
     isat_recall = metrics["isAt"]["macro_recall"]
