@@ -18,6 +18,8 @@ ml = [
     "sentence-transformers>=2.2",
     "transformers>=4.40",
     "accelerate>=0.30",
+    "spacy>=3.7",
+    "xgboost>=2.0",
 ]
 kaggle = ["kaggle>=1.6"]
 
