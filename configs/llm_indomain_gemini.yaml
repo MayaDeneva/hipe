@@ -17,5 +17,5 @@ model:
   kbench_model: google/gemini-3-flash-preview
   prompt_version: gemini-lean
   use_known_places: true
-  resolve_nil: true
+  resolve_nil: false
   n_shots: 3

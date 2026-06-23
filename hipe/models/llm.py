@@ -185,7 +185,7 @@ class LLMModel(RelationModel):
             n = linking.resolve_pairs(pairs)
             print(f"[llm] NIL-linked {n} entities", flush=True)
         cache = self._load_cache()
-        todo = [p for p in pairs if self._key(p) not in cache]
+        todo = [p for p in pairs if not cache.get(self._key(p))]   # missing OR empty -> (re)try
         if todo:
             import threading
             from concurrent.futures import ThreadPoolExecutor
@@ -197,7 +197,8 @@ class LLMModel(RelationModel):
                 except Exception:
                     txt = ""
                 with lock:
-                    cache[self._key(p)] = txt
+                    if txt:                       # never cache failures -> retried next run
+                        cache[self._key(p)] = txt
                     done[0] += 1
                     if done[0] % 25 == 0:
                         self._save_cache()
