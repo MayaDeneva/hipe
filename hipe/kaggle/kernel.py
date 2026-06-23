@@ -1,6 +1,6 @@
 # hipe/kaggle/kernel.py
 DATA_REPO = "https://github.com/hipe-eval/HIPE-2026-data.git"
-PINNED_COMMIT = "4228562"
+PINNED_COMMIT = "c94182ac691fd28d8b4d7a2404129761acdad467"  # labeled official test
 
 _TEMPLATE = '''import os
 import subprocess

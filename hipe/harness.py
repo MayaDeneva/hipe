@@ -35,6 +35,12 @@ def run_experiment(config: dict, now: str, runs_root=None) -> dict:
     dev_spec = data.get("dev")
 
     train = _load_pairs_spec(train_spec)
+    gold_spec = data.get("gold_train")          # extra GOLD training files (e.g. newspapers-train)
+    if gold_spec:
+        gold_pairs = _load_pairs_spec(gold_spec)
+        for p in gold_pairs:
+            p.is_gold = True
+        train = train + gold_pairs
     if dev_spec is not None:
         dev = _load_pairs_spec(dev_spec)
         # in-domain holdout: document-split the dev files, add the held-IN docs to

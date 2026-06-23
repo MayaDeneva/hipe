@@ -1,0 +1,21 @@
+data:
+  train:
+    - data/raw/HIPE-2026-data/data/sandbox/en-train.jsonl
+    - data/raw/HIPE-2026-data/data/sandbox/de-train.jsonl
+    - data/raw/HIPE-2026-data/data/sandbox/fr-train.jsonl
+  gold_train:
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-train-en.jsonl
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-train-de.jsonl
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-train-fr.jsonl
+  dev:
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-test-en.jsonl
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-test-de.jsonl
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-test-fr.jsonl
+consistency: soft
+model:
+  name: xlmr
+  model_name: xlm-roberta-large
+  epochs: 8
+  max_length: 192
+  batch_size: 8
+  lr: 1.0e-5
