@@ -68,7 +68,8 @@ class LLMModel(RelationModel):
         self.use_known_places = use_known_places
         self.resolve_nil = resolve_nil
         self.cot = cot
-        self.cache_path = cache_path or (cfg.CACHE_DIR / f"llm_{model.replace(':', '_')}.json")
+        _safe = model.replace(":", "_").replace("/", "_")
+        self.cache_path = cache_path or (cfg.CACHE_DIR / f"llm_{_safe}.json")
         self._cache = None
         self.shots = []
 
@@ -133,28 +134,28 @@ class LLMModel(RelationModel):
     def _kbench_llm(self):
         import kaggle_benchmarks as kbench
         if self._kb_llm is None:
-            self._kb_llm = kbench.llms[self.kbench_model] if self.kbench_model else kbench.llm
+            try:                              # llms[...] indexing is flaky per-process;
+                self._kb_llm = kbench.llms[self.kbench_model] if self.kbench_model else kbench.llm
+            except Exception:                 # fall back to the proxy default (LLM_DEFAULT)
+                self._kb_llm = kbench.llm
         return self._kb_llm
 
     def _call_kbench(self, messages):
         """Per-pair call to a Kaggle-hosted frontier model via the proxy. Flatten
-        the chat messages to one prompt, request a structured {at, isAt}."""
+        the chat messages to one prompt, request a structured {at, isAt}. Retries
+        transient errors; auth must be refreshed before the run (kaggle b auth)."""
         from dataclasses import make_dataclass
         P = make_dataclass("P", [("at", str), ("isAt", str)])
         text = "\n\n".join((("ANSWER: " + m["content"]) if m["role"] == "assistant"
                             else m["content"]) for m in messages)
-        for attempt in range(2):
+        for _ in range(3):
             try:
                 r = self._kbench_llm().prompt(text, schema=P)
                 return json.dumps({"at": str(getattr(r, "at", "FALSE")),
                                    "isAt": str(getattr(r, "isAt", "FALSE"))})
             except Exception:
-                if attempt == 0:           # short-lived key — refresh and retry once
-                    import subprocess
-                    subprocess.run(["kaggle", "b", "auth", "-y"], capture_output=True)
-                    self._kb_llm = None
-                else:
-                    return ""
+                continue
+        return ""
 
     @staticmethod
     def _parse(text):
