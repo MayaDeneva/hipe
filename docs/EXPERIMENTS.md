@@ -228,6 +228,43 @@ domain transfer, not the input encoding.
 
 ---
 
+## 9d. Two-stage curriculum (silver → gold) — the one training lever that helped
+
+From the noise-RE literature: our sandbox labels are *silver* (LLM), our
+newspapers are *gold*. Instead of mixing them, **pretrain on silver, then
+fine-tune on gold** (low lr, few epochs). `XLMRModel(curriculum=True)`; gold
+pairs tagged via `Pair.is_gold` in the harness.
+
+```
+base, stage1 silver (5897): val peaks 0.611
+base, stage2 gold (850, 3 ep): val 0.617 -> 0.627 -> 0.649  (climbs, no collapse)
+base curriculum test: at 0.502 / isAt 0.634 / global 0.5681
+```
+
+**Curriculum (0.5681) > base-mixed (0.561), +0.007** — the **first training change
+all session to move the *test* number** (everything in §6/§9 washed out or
+overfit val). It works because it attacks the real ceiling (silver-label noise +
+domain shift) rather than the input encoding. Being applied to `large` next.
+
+---
+
+## 9e. Error analysis (`notebooks/03_error_analysis.ipynb`)
+
+Where the models actually fail, on the 401-pair test:
+- **`PROBABLE` is the wall.** XLM-R's PROBABLE recall is 0.564 — best of any model
+  (majority 0.0, SVM/LLM 0.41) — but it still misses 44% (38% collapse to FALSE).
+  Since `at` macro-recall weights all 3 classes equally, the rare, ambiguous
+  PROBABLE class gates the score.
+- **French is hardest** (global fr 0.546 vs en 0.613, de 0.578) — entirely in `at`
+  (fr `at` 0.424, 18pp below en); French `isAt` is actually best (0.667). The
+  binary signal transfers across languages; the 3-class `at` distinction doesn't.
+- **KG coverage gives no advantage** (covered `at` 0.507 vs non-covered 0.539) —
+  independently re-confirms §8 from a different angle.
+- Universally-hard cases (51/401, all 3 models wrong) are 78% gold-TRUE pairs
+  where everyone hedges to PROBABLE.
+
+---
+
 ## 10. Ensembling (in-domain, n=401, leakage-free 5-fold OOF CV)
 
 Stack the decorrelated base models with a LogReg meta-learner; scored OOF with
