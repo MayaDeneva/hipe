@@ -148,13 +148,14 @@ class LLMModel(RelationModel):
         P = make_dataclass("P", [("at", str), ("isAt", str)])
         text = "\n\n".join((("ANSWER: " + m["content"]) if m["role"] == "assistant"
                             else m["content"]) for m in messages)
-        for _ in range(3):
+        import time
+        for attempt in range(4):
             try:
                 r = self._kbench_llm().prompt(text, schema=P)
                 return json.dumps({"at": str(getattr(r, "at", "FALSE")),
                                    "isAt": str(getattr(r, "isAt", "FALSE"))})
             except Exception:
-                continue
+                time.sleep(1.5 * (attempt + 1))   # backoff for transient 429/503
         return ""
 
     @staticmethod
@@ -204,7 +205,7 @@ class LLMModel(RelationModel):
                         self._save_cache()
                         print(f"[llm] {done[0]}/{len(todo)}", flush=True)
 
-            workers = 4 if self.backend == "kbench" else 1   # network-bound proxy -> parallel
+            workers = 2 if self.backend == "kbench" else 1   # proxy rate-limits bursts -> low concurrency
             with ThreadPoolExecutor(max_workers=workers) as ex:
                 list(ex.map(work, todo))
             self._save_cache()
