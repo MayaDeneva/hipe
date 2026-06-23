@@ -19,7 +19,7 @@
 #
 # Eval data = the baked prompts; attach the `hipe-prompts` dataset to the notebook
 # so it mounts at /kaggle/input/hipe-prompts/.
-import json
+import json, glob, os
 import pandas as pd
 import kaggle_benchmarks as kbench
 from dataclasses import dataclass
@@ -31,7 +31,20 @@ class Pred:
     isAt: str
 
 
-rows = json.load(open("/kaggle/input/hipe-prompts/hipe_prompts.json"))
+def find_prompts():
+    """Locate hipe_prompts.json regardless of the dataset's mount name."""
+    for pat in ("/kaggle/input/**/hipe_prompts.json",
+                "/kaggle/input/**/hipe-prompts.json",
+                "/kaggle/input/**/*.json", "./hipe_prompts.json"):
+        hits = glob.glob(pat, recursive=True)
+        if hits:
+            return hits[0]
+    raise FileNotFoundError(
+        "hipe_prompts.json not found under /kaggle/input/: "
+        + str(os.listdir("/kaggle/input")))
+
+
+rows = json.load(open(find_prompts()))
 DATA = pd.DataFrame(rows)   # columns: key, prompt, gold_at, gold_isAt
 
 

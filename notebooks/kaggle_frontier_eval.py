@@ -10,7 +10,7 @@
 #   2. Add Data -> your `hipe-prompts` dataset (mounts at /kaggle/input/hipe-prompts/).
 #   3. Paste this file, Run All.
 #   4. Download /kaggle/working/hipe_preds.json and send it back.
-import json
+import json, glob, os
 import pandas as pd
 import kaggle_benchmarks as kbench
 from dataclasses import dataclass
@@ -19,7 +19,6 @@ from dataclasses import dataclass
 #   anthropic/claude-haiku-4-5@20251001  openai/gpt-oss-120b
 #   deepseek-ai/deepseek-v3.2            qwen/qwen3-next-80b-a3b-instruct   zai/glm-5
 MODEL = "anthropic/claude-haiku-4-5@20251001"
-INPUT = "/kaggle/input/hipe-prompts/hipe_prompts.json"
 OUT = "/kaggle/working/hipe_preds.json"
 
 
@@ -29,6 +28,21 @@ class Pred:
     isAt: str
 
 
+def find_prompts():
+    """Locate hipe_prompts.json regardless of the dataset's mount name."""
+    for pat in ("/kaggle/input/**/hipe_prompts.json",
+                "/kaggle/input/**/hipe-prompts.json",
+                "/kaggle/input/**/*.json", "./hipe_prompts.json"):
+        hits = glob.glob(pat, recursive=True)
+        if hits:
+            return hits[0]
+    raise FileNotFoundError(
+        "hipe_prompts.json not found. Mounts under /kaggle/input/: "
+        + str(os.listdir("/kaggle/input")) + ". Attach the dataset that contains it.")
+
+
+INPUT = find_prompts()
+print("using prompts file:", INPUT, flush=True)
 rows = json.load(open(INPUT))
 DATA = pd.DataFrame(rows)            # columns: key, prompt, gold_at, gold_isAt
 _done = [0]
