@@ -30,22 +30,31 @@ class Pred:
     isAt: str
 
 
+# set to "official" (638 impresso test) or "indomain" (401 holdout)
+WHICH = "official"
+
+
 def find_prompts():
-    """Locate hipe_prompts.json regardless of the dataset's mount name."""
-    for pat in ("/kaggle/input/**/hipe_prompts.json",
-                "/kaggle/input/**/hipe-prompts.json",
-                "/kaggle/input/**/*.json", "./hipe_prompts.json"):
+    """Locate the prompts file; prefer the OFFICIAL 638-pair set."""
+    pats = (["/kaggle/input/**/hipe_prompts_official.json"] if WHICH == "official" else []) + [
+        "/kaggle/input/**/hipe_prompts.json",
+        "/kaggle/input/**/hipe-prompts*.json",
+        "/kaggle/input/**/*.json",
+        "./hipe_prompts_official.json", "./hipe_prompts.json"]
+    for pat in pats:
         hits = glob.glob(pat, recursive=True)
         if hits:
             return hits[0]
     raise FileNotFoundError(
-        "hipe_prompts.json not found. Mounts under /kaggle/input/: "
+        "prompts json not found. Mounts under /kaggle/input/: "
         + str(os.listdir("/kaggle/input")) + ". Attach the dataset that contains it.")
 
 
 INPUT = find_prompts()
-print("using prompts file:", INPUT, flush=True)
 rows = json.load(open(INPUT))
+print(f"using prompts file: {INPUT}  ({len(rows)} pairs)", flush=True)
+assert len(rows) == 638 or WHICH != "official", \
+    f"expected 638 official pairs, got {len(rows)} — wrong dataset attached?"
 DATA = pd.DataFrame(rows)            # columns: key, prompt, gold_at, gold_isAt
 _done = [0]
 
