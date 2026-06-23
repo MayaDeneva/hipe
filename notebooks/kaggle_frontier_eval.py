@@ -10,10 +10,12 @@
 #   2. Add Data -> your `hipe-prompts` dataset (mounts at /kaggle/input/hipe-prompts/).
 #   3. Paste this file, Run All.
 #   4. Download /kaggle/working/hipe_preds.json and send it back.
-import json, glob, os
+import json, glob, os, time
 import pandas as pd
 import kaggle_benchmarks as kbench
 from dataclasses import dataclass
+
+THROTTLE = 0.8   # proactive pause/call: spaces requests so the proxy 429s less -> fewer slow retries
 
 # reachable models (gemini-3-flash was 503 last we checked):
 #   anthropic/claude-haiku-4-5@20251001  openai/gpt-oss-120b
@@ -53,6 +55,7 @@ def hipe_at(llm, prompt: str, gold_at: str, gold_isAt: str, key: str) -> dict:
     """Predict at (ever there: TRUE/PROBABLE/FALSE) and isAt (present now: TRUE/FALSE)
     for a historical person-place pair. Returns the labels; we score macro-recall +
     ensemble locally, so no assertion is needed here."""
+    time.sleep(THROTTLE)
     p = kbench.llm.prompt(prompt, schema=Pred)
     _done[0] += 1
     if _done[0] % 10 == 0:
