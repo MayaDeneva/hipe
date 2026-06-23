@@ -102,7 +102,7 @@ class XLMRModel(RelationModel):
     def __init__(self, model_name="xlm-roberta-base", epochs=8, batch_size=16,
                  lr=2e-5, max_length=192, dropout=0.1, weight_decay=0.01,
                  marker_scheme="plain", add_date=False, add_kb=False,
-                 dual_scope=False,
+                 dual_scope=False, curriculum=False, ft_lr_mult=0.3, ft_epochs=3,
                  val_frac=0.15, patience=2, max_train=None, seed=0):
         self.model_name = model_name
         self.epochs = epochs
@@ -115,6 +115,9 @@ class XLMRModel(RelationModel):
         self.add_date = add_date
         self.add_kb = add_kb
         self.dual_scope = dual_scope        # at<-wide context, isAt<-narrow context
+        self.curriculum = curriculum        # stage1 silver (sandbox) -> stage2 gold fine-tune
+        self.ft_lr_mult = ft_lr_mult        # stage-2 lr = lr * ft_lr_mult
+        self.ft_epochs = ft_epochs
         self.val_frac = val_frac
         self.patience = patience
         self.max_train = max_train
@@ -124,9 +127,7 @@ class XLMRModel(RelationModel):
         self._device = None
 
     def fit(self, train, dev=None):
-        import copy
         import torch
-        from torch.utils.data import DataLoader, Dataset
         from transformers import AutoTokenizer, set_seed
         from hipe.data.split import split_by_document
         _quiet_hf()
@@ -134,35 +135,48 @@ class XLMRModel(RelationModel):
             train = train[:self.max_train]
         set_seed(self.seed)
 
-        # internal validation split for checkpoint selection / early stopping
-        tr, va = split_by_document(train, dev_frac=self.val_frac, seed=self.seed)
-        if not tr or not va:                 # too few documents to split
-            tr, va = train, []
-
-        at2id = {l: i for i, l in enumerate(cfg.AT_LABELS)}
-        isat2id = {l: i for i, l in enumerate(cfg.ISAT_LABELS)}
-        def _mk(p, scope):
-            return marked_text(p, self.marker_scheme, self.add_date, self.add_kb, scope)
-        texts = [_mk(p, "wide") for p in tr]
-        at_y = [at2id[p.gold_at] for p in tr]
-        isat_y = [isat2id[p.gold_isat] for p in tr]
-
+        # build tokenizer + module ONCE (so curriculum phases share the encoder)
         self.tok = AutoTokenizer.from_pretrained(self.model_name)
         self.tok.add_special_tokens({"additional_special_tokens":
                                      scheme_marker_tokens(self.marker_scheme, self.add_date)})
-        enc = self.tok(texts, truncation=True, max_length=self.max_length)
-        # narrow view (for the isAt head) — same encoding as wide unless dual_scope
-        enc_n = (self.tok([_mk(p, "narrow") for p in tr], truncation=True,
-                          max_length=self.max_length) if self.dual_scope else enc)
         markers = tuple(self.tok.convert_tokens_to_ids(t)
                         for t in scheme_pool_markers(self.marker_scheme))
-
         self.module = _build_module(self.model_name, len(cfg.AT_LABELS),
                                     len(cfg.ISAT_LABELS), len(self.tok),
                                     self.dropout, markers)
         self._device = "cuda" if torch.cuda.is_available() else "cpu"
         self.module.to(self._device)
 
+        def _split(pairs):
+            tr, va = split_by_document(pairs, dev_frac=self.val_frac, seed=self.seed)
+            return (tr, va) if (tr and va) else (pairs, [])
+
+        if self.curriculum:
+            silver = [p for p in train if not p.is_gold]
+            gold = [p for p in train if p.is_gold]
+            print(f"[xlmr] curriculum: stage1 silver={len(silver)} stage2 gold={len(gold)}", flush=True)
+            self._train_phase(*_split(silver or train), self.lr, self.epochs, self.patience, "stage1")
+            if gold:
+                self._train_phase(*_split(gold), self.lr * self.ft_lr_mult,
+                                  self.ft_epochs, 1, "stage2")
+        else:
+            self._train_phase(*_split(train), self.lr, self.epochs, self.patience, "")
+
+    def _train_phase(self, tr, va, lr, epochs, patience, tag):
+        import copy
+        import torch
+        from torch.utils.data import DataLoader, Dataset
+        from transformers import get_linear_schedule_with_warmup
+        at2id = {l: i for i, l in enumerate(cfg.AT_LABELS)}
+        isat2id = {l: i for i, l in enumerate(cfg.ISAT_LABELS)}
+
+        def _mk(p, scope):
+            return marked_text(p, self.marker_scheme, self.add_date, self.add_kb, scope)
+        enc = self.tok([_mk(p, "wide") for p in tr], truncation=True, max_length=self.max_length)
+        enc_n = (self.tok([_mk(p, "narrow") for p in tr], truncation=True,
+                          max_length=self.max_length) if self.dual_scope else enc)
+        at_y = [at2id[p.gold_at] for p in tr]
+        isat_y = [isat2id[p.gold_isat] for p in tr]
         at_w = _class_weights([p.gold_at for p in tr], cfg.AT_LABELS).to(self._device)
         isat_w = _class_weights([p.gold_isat for p in tr], cfg.ISAT_LABELS).to(self._device)
         pad = self.tok.pad_token_id or 0
@@ -186,34 +200,29 @@ class XLMRModel(RelationModel):
                     torch.tensor([b[4] for b in batch]),
                     torch.tensor([b[5] for b in batch]))
 
-        loader = DataLoader(_DS(), batch_size=self.batch_size, shuffle=True,
-                            collate_fn=collate)
-        # weight decay on everything except biases / LayerNorm (standard recipe)
+        loader = DataLoader(_DS(), batch_size=self.batch_size, shuffle=True, collate_fn=collate)
         no_decay = ("bias", "LayerNorm.weight", "layer_norm.weight")
         grouped = [
             {"params": [p for n, p in self.module.named_parameters()
-                        if not any(nd in n for nd in no_decay)],
-             "weight_decay": self.weight_decay},
+                        if not any(nd in n for nd in no_decay)], "weight_decay": self.weight_decay},
             {"params": [p for n, p in self.module.named_parameters()
                         if any(nd in n for nd in no_decay)], "weight_decay": 0.0},
         ]
-        opt = torch.optim.AdamW(grouped, lr=self.lr)
-        from transformers import get_linear_schedule_with_warmup
-        total_steps = max(1, len(loader) * self.epochs)
-        sched = get_linear_schedule_with_warmup(
-            opt, int(0.1 * total_steps), total_steps)   # 10% LR warmup, then decay
+        opt = torch.optim.AdamW(grouped, lr=lr)
+        total_steps = max(1, len(loader) * epochs)
+        sched = get_linear_schedule_with_warmup(opt, int(0.1 * total_steps), total_steps)
         ce = torch.nn.functional.cross_entropy
 
         best_global, best_state, bad = -1.0, None, 0
         tr_sample = tr[:600]
-        for epoch in range(self.epochs):
+        for epoch in range(epochs):
             self.module.train()
             for wid, wmask, nid, nmask, at, isat in loader:
                 wid, wmask = wid.to(self._device), wmask.to(self._device)
                 at, isat = at.to(self._device), isat.to(self._device)
                 opt.zero_grad()
                 at_log, isat_log = self.module(wid, wmask)
-                if self.dual_scope:                      # isAt head reads the narrow view
+                if self.dual_scope:
                     nid, nmask = nid.to(self._device), nmask.to(self._device)
                     _, isat_log = self.module(nid, nmask)
                 loss = ce(at_log, at, weight=at_w) + ce(isat_log, isat, weight=isat_w)
@@ -222,19 +231,17 @@ class XLMRModel(RelationModel):
                 opt.step()
                 sched.step()
             if va:
-                tr_g = self._eval_global(tr_sample)
                 va_g = self._eval_global(va)
-                print(f"[xlmr] epoch {epoch + 1}/{self.epochs} "
-                      f"train_macroR={tr_g:.4f} val_macroR={va_g:.4f}", flush=True)
+                print(f"[xlmr] {tag} epoch {epoch + 1}/{epochs} "
+                      f"train_macroR={self._eval_global(tr_sample):.4f} val_macroR={va_g:.4f}", flush=True)
                 if va_g > best_global + 1e-4:
                     best_global = va_g
-                    best_state = copy.deepcopy(
-                        {k: v.cpu() for k, v in self.module.state_dict().items()})
+                    best_state = copy.deepcopy({k: v.cpu() for k, v in self.module.state_dict().items()})
                     bad = 0
                 else:
                     bad += 1
-                    if bad >= self.patience:
-                        print(f"[xlmr] early stop at epoch {epoch + 1}; "
+                    if bad >= patience:
+                        print(f"[xlmr] {tag} early stop at epoch {epoch + 1}; "
                               f"best val_macroR={best_global:.4f}", flush=True)
                         break
         if best_state is not None:

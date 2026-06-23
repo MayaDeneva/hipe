@@ -44,6 +44,8 @@ def run_experiment(config: dict, now: str, runs_root=None) -> dict:
         if holdout:
             dev_in, dev = split_by_document(
                 dev, dev_frac=holdout, seed=data.get("dev_holdout_seed", 0))
+            for p in dev_in:                 # held-in newspapers are human GOLD
+                p.is_gold = True
             train = train + dev_in
         dev_doc_ids = {p.doc_id for p in dev}
         train = [p for p in train if p.doc_id not in dev_doc_ids]

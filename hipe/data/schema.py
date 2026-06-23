@@ -35,4 +35,5 @@ class Pair:
     pub_date: Optional[str]
     gold_at: str = "FALSE"           # TRUE | PROBABLE | FALSE
     gold_isat: str = "FALSE"         # TRUE | FALSE
+    is_gold: bool = False            # True = human gold (newspapers); False = silver (sandbox)
     features: dict = field(default_factory=dict)
