@@ -200,6 +200,34 @@ narrow one) — being applied to `large` next.
 
 ---
 
+### 9c. Decoupling helps small models, not large
+
+Built the dual-scope model (one encoder, two context-scoped heads) and tested on
+`large`:
+
+| large variant | at | isAt | global |
+|---|---|---|---|
+| large-alone (narrow window) | 0.528 | 0.632 | **0.5800** |
+| dual-scope, SHARED encoder | 0.507 | 0.610 | 0.5582 |
+| full combo (window+date+mKB, 256) | 0.542 | 0.604 | 0.5730 (val **0.661**) |
+| decoupled, SEPARATE models (at←wide, isAt←narrow) | 0.530 | 0.632 | 0.5809 |
+
+- **Shared-encoder dual-scope FAILS** (0.558 < 0.580): the two scopes interfere;
+  one encoder can't specialize for wide and narrow simultaneously. The §9b gain
+  needs *separate* encoders.
+- **Decoupling is a wash on `large`** (0.5809 ≈ 0.580) even with separate models,
+  though it gave +0.012 on `base`. Interpretation: **decoupling helps
+  capacity-limited (base) models; `large` already serves both targets from one
+  context.** The trick is a small-model crutch.
+- The **full combo overfits** (val 0.661 / test 0.573) — the cleanest single
+  example of the val/test domain gap.
+
+**Conclusion: `large-alone` (0.580) is the best single deployable model.** No
+input-representation or pooling refinement beats it on the test — the ceiling is
+domain transfer, not the input encoding.
+
+---
+
 ## 10. Ensembling (in-domain, n=401, leakage-free 5-fold OOF CV)
 
 Stack the decorrelated base models with a LogReg meta-learner; scored OOF with
