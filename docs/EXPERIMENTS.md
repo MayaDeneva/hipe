@@ -409,9 +409,23 @@ the **curriculum run's own `at`-proba** (better-calibrated) lifts it further to
 curriculum, which has both probas), so the official validation is a single Kaggle
 GPU job (`mayadeneva/hipe-official-curr`) + the Claude official-test run.
 
-**CAVEAT:** in-domain OOF only. Official impresso-test validation pending (638
-pairs): Claude on `hipe_prompts_official.json` + the curriculum official probas,
-then fit the metas on all in-domain and apply. A 7B local qwen (Ollama) maxed grounded-`at` at
+**OFFICIAL VALIDATION (2026-06-24) — the gain TRANSFERS, leakage-free.** Metas fit
+on all 401 in-domain, applied to the 638-pair official impresso-test (curriculum
+official probas from Kaggle GPU `mayadeneva/hipe-official-curr` + Claude official
+preds). `scripts/official_ensemble.py`:
+
+| `overall-test-a` (mean per-lang) | en | de | fr | overall |
+|---|---|---|---|---|
+| transformer-only | 0.5878 | 0.5759 | 0.6085 | **0.5907** |
+| **soft ensemble** | 0.6018 | **0.7014** | **0.7016** | **0.6683** |
+
+**+0.078 official** (de +0.126, fr +0.093). `at` 0.522→0.610 with PROBABLE recall
+0.435 (transformer's wall was ~0) — the LLM cracks PROBABLE out-of-domain too.
+**This moves us from ~rank 13 (just above the 0.5818 baseline) to RANK 4 of 18**
+on the official board (team13 0.748, team8 0.700, team12 0.688, **us 0.668**,
+team1 0.667, …) — top-3 run 100B+ models; we used a 560M transformer + Claude
+Haiku 4.5. Honest: meta never saw the test, Claude is a real model (not the
+`llm_lookup` leakage). A 7B local qwen (Ollama) maxed grounded-`at` at
 0.471 < 0.507 across prompt variants (KB known-places + world-knowledge + gold
 few-shot helped; CoT mixed) — model scale, not prompt, is what moved it.
 
