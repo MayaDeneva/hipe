@@ -324,6 +324,26 @@ result**, and ensembling can't beat it.
 
 ---
 
+## 10c. OFFICIAL test result (impresso-test, the real held-out set)
+
+Trained on sandbox (silver) + ALL newspapers-train (gold), predicted on the
+**official labeled impresso-test** (en 162 / de 238 / fr 238 pairs), scored with
+the official scorer (TERNARY, per-language `global` averaged = `overall-test-a`):
+
+| system | en | de | fr | OVERALL |
+|---|---|---|---|---|
+| large-alone | 0.531 | 0.604 | 0.555 | 0.5634 |
+| **large + curriculum** | 0.588 | 0.576 | 0.609 | **0.5907** |
+| decoupled (at←alone) | 0.542 | 0.615 | 0.552 | 0.5698 |
+
+**Official standing: 0.5907 → ~rank 16 of ~24 runs, ABOVE the organizers'
+baseline (0.5818).** Top system team13=0.748. Curriculum held up on truly unseen
+data (+0.027 over large-alone); decoupling did NOT (curriculum better on both
+targets here). The single fine-tuned XLM-R-large + curriculum is a legitimate,
+deployable, leakage-free mid-pack result that beats the official baseline.
+
+---
+
 ## 11. Headline results
 
 | | global | deployable? |
