@@ -244,7 +244,24 @@ base curriculum test: at 0.502 / isAt 0.634 / global 0.5681
 **Curriculum (0.5681) > base-mixed (0.561), +0.007** — the **first training change
 all session to move the *test* number** (everything in §6/§9 washed out or
 overfit val). It works because it attacks the real ceiling (silver-label noise +
-domain shift) rather than the input encoding. Being applied to `large` next.
+domain shift) rather than the input encoding.
+
+**On `large` it breaks through** (helps far more than on base — large has the
+capacity to specialize in the gold phase):
+
+```
+large-alone                              at 0.528  isAt 0.632  global 0.5800
+large + curriculum                       at 0.495  isAt 0.733  global 0.6140  (+0.034!)
+DECOUPLED: at<-large-alone, isAt<-curriculum   0.532  0.733    global 0.6325  ← best deployable
+llm_lookup (leakage bar, not deployable)                       global 0.6354
+```
+
+The gold fine-tune lifts **`isAt` 0.632 -> 0.733 (+0.10)** (the contextual target
+loves in-domain gold) but costs a little `at`; **decoupling recovers `at`** from
+the un-fine-tuned model. The result, **0.6325, essentially MATCHES the LLM
+baseline (0.6354) with a fully deployable, leakage-free model** (up from 0.580).
+Two winning levers stacked: curriculum (noise/domain) + decoupling (per-target).
+This is the headline deployable result.
 
 ---
 
