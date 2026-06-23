@@ -18,3 +18,6 @@ runs/**/*.pkl
 *.env
 kaggle.json
 .kaggle/
+
+hipe_prompts.json
+hipe_preds.json
