@@ -22,3 +22,9 @@ kaggle.json
 hipe_prompts.json
 hipe_preds.json
 hipe_prompts_official.json
+
+# kaggle-benchmarks local run artifacts
+/*.run.json
+/*.task.json
+/example_task.py
+/kaggle_benchmarks_reference.md
