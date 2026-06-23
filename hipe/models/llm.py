@@ -56,9 +56,12 @@ class LLMModel(RelationModel):
     def __init__(self, model="qwen2.5:7b", endpoint="http://localhost:11434",
                  n_shots=3, cache_path=None, temperature=0.0,
                  prompt_version="v1", use_known_places=False, resolve_nil=False,
-                 cot=False):
+                 cot=False, backend="ollama", kbench_model=None):
         self.model = model
         self.endpoint = endpoint
+        self.backend = backend              # "ollama" (local) or "kbench" (Kaggle frontier proxy)
+        self.kbench_model = kbench_model     # e.g. "google/gemini-3-flash-preview"
+        self._kb_llm = None
         self.n_shots = n_shots
         self.temperature = temperature
         self.prompt_version = prompt_version
@@ -118,12 +121,40 @@ class LLMModel(RelationModel):
         return msgs
 
     def _call(self, messages):
+        if self.backend == "kbench":
+            return self._call_kbench(messages)
         import requests
         r = requests.post(self.endpoint + "/api/chat",
                           json={"model": self.model, "messages": messages,
                                 "stream": False, "options": {"temperature": self.temperature}},
                           timeout=120)
         return r.json().get("message", {}).get("content", "")
+
+    def _kbench_llm(self):
+        import kaggle_benchmarks as kbench
+        if self._kb_llm is None:
+            self._kb_llm = kbench.llms[self.kbench_model] if self.kbench_model else kbench.llm
+        return self._kb_llm
+
+    def _call_kbench(self, messages):
+        """Per-pair call to a Kaggle-hosted frontier model via the proxy. Flatten
+        the chat messages to one prompt, request a structured {at, isAt}."""
+        from dataclasses import make_dataclass
+        P = make_dataclass("P", [("at", str), ("isAt", str)])
+        text = "\n\n".join((("ANSWER: " + m["content"]) if m["role"] == "assistant"
+                            else m["content"]) for m in messages)
+        for attempt in range(2):
+            try:
+                r = self._kbench_llm().prompt(text, schema=P)
+                return json.dumps({"at": str(getattr(r, "at", "FALSE")),
+                                   "isAt": str(getattr(r, "isAt", "FALSE"))})
+            except Exception:
+                if attempt == 0:           # short-lived key — refresh and retry once
+                    import subprocess
+                    subprocess.run(["kaggle", "b", "auth", "-y"], capture_output=True)
+                    self._kb_llm = None
+                else:
+                    return ""
 
     @staticmethod
     def _parse(text):
@@ -153,26 +184,30 @@ class LLMModel(RelationModel):
             n = linking.resolve_pairs(pairs)
             print(f"[llm] NIL-linked {n} entities", flush=True)
         cache = self._load_cache()
-        out, dirty = [], False
-        for i, p in enumerate(pairs):
-            ck = self._key(p)
-            if ck in cache:
-                txt = cache[ck]
-            else:
+        todo = [p for p in pairs if self._key(p) not in cache]
+        if todo:
+            import threading
+            from concurrent.futures import ThreadPoolExecutor
+            lock, done = threading.Lock(), [0]
+
+            def work(p):
                 try:
                     txt = self._call(self._messages(p))
                 except Exception:
                     txt = ""
-                cache[ck] = txt
-                dirty = True
-                if i % 25 == 0:
-                    self._save_cache()
-                    print(f"[llm] {i}/{len(pairs)}", flush=True)
-        # second pass: parse (kept separate so cache writes are batched)
-        if dirty:
+                with lock:
+                    cache[self._key(p)] = txt
+                    done[0] += 1
+                    if done[0] % 25 == 0:
+                        self._save_cache()
+                        print(f"[llm] {done[0]}/{len(todo)}", flush=True)
+
+            workers = 4 if self.backend == "kbench" else 1   # network-bound proxy -> parallel
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                list(ex.map(work, todo))
             self._save_cache()
+        out = []
         for p in pairs:
-            txt = cache.get(self._key(p), "")
-            at, isat = self._parse(txt)
+            at, isat = self._parse(cache.get(self._key(p), ""))
             out.append({"at": at, "isAt": isat, "at_proba": None, "isAt_proba": None})
         return out
