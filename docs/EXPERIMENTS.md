@@ -372,6 +372,45 @@ linguistic/structural features · OCR-robust pretraining (hmBERT) · NIL linking
 
 ---
 
+## 13. Frontier-LLM × transformer soft ensemble — the 0.70 jump (2026-06-23)
+
+The §10b verdict ("ensembling can't beat 0.6325 — no second strong leakage-free
+member") is **overturned**: a real **frontier LLM IS that member**. We run
+**Claude Haiku 4.5** over the 401 in-domain test pairs via **Kaggle Community
+Benchmarks** (`kaggle_benchmarks` model proxy — the local proxy is unusable under
+our agent harness: Gemini 503, any concurrency 429s, detached calls fail; only
+short sequential foreground works, so we bake prompts → run in a Kaggle notebook
+from `/benchmarks/tasks/new` → download `hipe_preds.json`). Prompts carry our gold
+few-shot + KB known-places + date + context (`scripts/build_prompts.py`).
+
+Per-target LogReg metas, **5-fold doc-grouped OOF** (`scripts/router_from_json.py`):
+
+| variant | at | isAt | global |
+|---|---|---|---|
+| transformer-only (baseline) | 0.5320 | 0.7331 | 0.6325 |
+| at←LLM-if-grounded \| isAt←transformer | 0.5200 | 0.7331 | 0.6265 |
+| **at←META** \| isAt←transformer | **0.6474** | 0.7331 | 0.6902 |
+| at←transformer \| **isAt←SOFT-META** | 0.5414 | **0.7530** | 0.6472 |
+| **at←META \| isAt←SOFT-META (full)** | **0.6557** | **0.7530** | **0.7043** |
+
+**Why it jumps when neither model alone is better at grounded-`at`** (transformer
+0.507 > Claude 0.486): **decorrelation**. Claude freely predicts **PROBABLE** (82
+of 401), the exact class behind the transformer's "PROBABLE wall" (§ error
+analysis). The `at` meta — features `[transformer at-proba, LLM at one-hot, KB
+flag]` — recovers PROBABLE recall, so macro-recall leaps `at` 0.53→0.66. **Naive
+routing hurts (0.6265); only the learned combiner wins.** The **`isAt` soft meta**
+— `[transformer isAt-proba, LLM at, transformer at-proba, KB flag]` — lifts isAt
+0.733→0.753 by feeding the LLM's `at` *into* `isAt` (the forward at→isAt
+dependency; `at=FALSE`⇒`isAt=FALSE`, `at=TRUE`→`isAt` likelier).
+
+**CAVEAT:** in-domain OOF only. Official impresso-test validation pending (needs
+Claude on `hipe_prompts_official.json` + transformer official probas, then fit the
+metas on all in-domain and apply). A 7B local qwen (Ollama) maxed grounded-`at` at
+0.471 < 0.507 across prompt variants (KB known-places + world-knowledge + gold
+few-shot helped; CoT mixed) — model scale, not prompt, is what moved it.
+
+---
+
 *Reproducibility:* every run is recorded in `runs/leaderboard.csv`; configs in
 `configs/`; analysis in `notebooks/`. Data/eval go through the vendored official
 scorer.
