@@ -186,3 +186,24 @@ def gloss_for(qid, lang):
     if isinstance(d, str):          # old single-language cache
         return d
     return d.get(lang) or d.get("en") or next(iter(d.values()), "")
+
+
+def person_place_labels(qid, lang="en", limit=15):
+    """Readable labels of the places a person is linked to (for LLM-prompt KB
+    grounding of the `at` target). Language-matched, English fallback, cached."""
+    c = _load_cache()
+    key = f"PLL:{qid}:{lang}"
+    if key in c:
+        return c[key]
+    q = ('SELECT ?place ?placeLabel WHERE { wd:%s ?p ?place . ?place wdt:P625 [] . '
+         'SERVICE wikibase:label { bd:serviceParam wikibase:language "%s,en". } } LIMIT 40'
+         % (qid, lang if lang in ("en", "de", "fr") else "en"))
+    out = []
+    for b in _sparql(q):
+        l = b.get("placeLabel", {}).get("value", "")
+        if l and not l.startswith("Q") and l not in out:
+            out.append(l)
+    out = out[:limit]
+    c[key] = out
+    _save_cache()
+    return out

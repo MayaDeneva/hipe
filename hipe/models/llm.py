@@ -19,18 +19,26 @@ INSTRUCTION = (
     "FALSE = no indication, or the place is unrelated to the person.\n"
     "- \"isAt\": is the person AT the place in the specific situation this text "
     "describes (present there, in this context/moment)? One of TRUE / FALSE.\n"
-    "Use the entity descriptions and the document date. "
+    "For \"at\", use BOTH the text AND your own historical/world knowledge about "
+    "the person, AND any provided 'Known places' facts — the text often will NOT "
+    "state it explicitly even when the person truly was there. For \"isAt\", rely "
+    "on what THIS text describes.\n"
     "Answer with ONLY a JSON object like {\"at\": \"PROBABLE\", \"isAt\": \"FALSE\"}."
 )
 
 
-def _block(pair, gloss_fn, max_ctx=1200):
+def _block(pair, gloss_fn, places_fn=None, max_ctx=1200):
     lang = pair.language
     pg = gloss_fn(pair.person.qid, lang) if pair.person.qid else ""
     lg = gloss_fn(pair.place.qid, lang) if pair.place.qid else ""
     y = year_of(pair.pub_date)
     lines = [f"PERSON: {pair.person.surface}" + (f" — {pg}" if pg else ""),
              f"PLACE: {pair.place.surface}" + (f" — {lg}" if lg else "")]
+    if places_fn and pair.person.qid:
+        kp = places_fn(pair.person.qid, lang)
+        if kp:
+            lines.append("Known places associated with the person (Wikidata): "
+                         + ", ".join(kp))
     if y:
         lines.append(f"DATE: {y}")
     lines.append(f"TEXT: {pair.context[:max_ctx]}")
@@ -46,11 +54,15 @@ class LLMModel(RelationModel):
     name = "llm"
 
     def __init__(self, model="qwen2.5:7b", endpoint="http://localhost:11434",
-                 n_shots=3, cache_path=None, temperature=0.0):
+                 n_shots=3, cache_path=None, temperature=0.0,
+                 prompt_version="v1", use_known_places=False, resolve_nil=False):
         self.model = model
         self.endpoint = endpoint
         self.n_shots = n_shots
         self.temperature = temperature
+        self.prompt_version = prompt_version
+        self.use_known_places = use_known_places
+        self.resolve_nil = resolve_nil
         self.cache_path = cache_path or (cfg.CACHE_DIR / f"llm_{model.replace(':', '_')}.json")
         self._cache = None
         self.shots = []
@@ -68,6 +80,10 @@ class LLMModel(RelationModel):
         from hipe.features.kb import gloss_for
         return gloss_for(qid, lang)
 
+    def _places(self, qid, lang):
+        from hipe.features.kb import person_place_labels
+        return person_place_labels(qid, lang)
+
     def fit(self, train, dev=None):
         # balanced few-shot exemplars: a couple per at-class
         by = defaultdict(list)
@@ -79,12 +95,13 @@ class LLMModel(RelationModel):
         self.shots = self.shots[:self.n_shots * 2]
 
     def _messages(self, pair):
+        pf = self._places if self.use_known_places else None
         msgs = [{"role": "system", "content": INSTRUCTION}]
         for s in self.shots:
-            msgs.append({"role": "user", "content": _block(s, self._gloss, max_ctx=400)})
+            msgs.append({"role": "user", "content": _block(s, self._gloss, pf, max_ctx=400)})
             msgs.append({"role": "assistant",
                          "content": json.dumps({"at": s.gold_at, "isAt": s.gold_isat})})
-        msgs.append({"role": "user", "content": _block(pair, self._gloss)})
+        msgs.append({"role": "user", "content": _block(pair, self._gloss, pf)})
         return msgs
 
     def _call(self, messages):
@@ -114,11 +131,18 @@ class LLMModel(RelationModel):
             at = "TRUE"
         return at, isat
 
+    def _key(self, p):
+        return f"{self.prompt_version}|{self.model}|{p.doc_id}|{pair_key(p)}"
+
     def predict(self, pairs):
+        if self.resolve_nil:
+            from hipe.features import linking
+            n = linking.resolve_pairs(pairs)
+            print(f"[llm] NIL-linked {n} entities", flush=True)
         cache = self._load_cache()
         out, dirty = [], False
         for i, p in enumerate(pairs):
-            ck = f"{self.model}|{p.doc_id}|{pair_key(p)}"
+            ck = self._key(p)
             if ck in cache:
                 txt = cache[ck]
             else:
@@ -135,7 +159,7 @@ class LLMModel(RelationModel):
         if dirty:
             self._save_cache()
         for p in pairs:
-            txt = cache.get(f"{self.model}|{p.doc_id}|{pair_key(p)}", "")
+            txt = cache.get(self._key(p), "")
             at, isat = self._parse(txt)
             out.append({"at": at, "isAt": isat, "at_proba": None, "isAt_proba": None})
         return out
