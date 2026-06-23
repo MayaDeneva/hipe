@@ -307,15 +307,38 @@ the official scorer. `scripts/ensemble_compare.py`.
 
 ---
 
+## 10b. Re-ensembling with the strong member — doesn't help
+
+Rebuilt the stack with the decoupled-large (0.6325) member (`scripts`→`/tmp`):
+
+| stack | global | note |
+|---|---|---|
+| llm + svm + large (leakage) | 0.6692 | < prior 0.6875 (noise on 401) |
+| llm + large (leakage) | 0.6762 | < prior 0.6875 |
+| **svm + large (DEPLOYABLE)** | **0.5767** | *worse* than large single (0.6325!) |
+
+**With only ONE strong deployable member, ensembling hurts** — stacking the weak
+`embedding_svm` (0.519) drags `at` down to 0.431. We lack a second strong
+leakage-free model, so the **deployable single (0.6325) is the best deployable
+result**, and ensembling can't beat it.
+
+---
+
 ## 11. Headline results
 
-| | global | regime |
+| | global | deployable? |
 |---|---|---|
-| stacking ensemble (llm + svm + xlmr, probs) | **0.6875** | in-domain n=401 |
-| llm_lookup (organizers' baseline / leakage bar) | 0.635 | in-domain n=401 |
-| xlm-roberta-large (best deployable single) | 0.580 | in-domain n=401 |
-| xlmr-base + date (best input variant so far) | 0.568 | in-domain n=401 |
-| embedding_svm + KB | 0.528 | in-domain n=401 |
+| stacking ensemble (llm + svm + xlmr, probs) | **0.6875** | ✗ leakage (oracle ceiling) |
+| llm_lookup (organizers' baseline / leakage bar) | 0.6354 | ✗ leakage |
+| **decoupled large + curriculum** (at←large-alone, isAt←large+curriculum) | **0.6325** | **✓ best deployable** |
+| large + curriculum (single model) | 0.6140 | ✓ |
+| large-alone | 0.5800 | ✓ |
+| embedding_svm | 0.5186 | ✓ |
+
+**The number that counts: 0.6325 deployable, matching the LLM baseline (0.6354)
+without leakage.** 0.6875 is the oracle ceiling (rests on `llm_lookup`'s label
+leakage). Best lever: the two-stage silver→gold curriculum (§9d). Ensembling
+can't beat 0.6325 — no second strong leakage-free member (§10b).
 
 ## 12. What worked vs what didn't
 
