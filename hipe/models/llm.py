@@ -55,7 +55,8 @@ class LLMModel(RelationModel):
 
     def __init__(self, model="qwen2.5:7b", endpoint="http://localhost:11434",
                  n_shots=3, cache_path=None, temperature=0.0,
-                 prompt_version="v1", use_known_places=False, resolve_nil=False):
+                 prompt_version="v1", use_known_places=False, resolve_nil=False,
+                 cot=False):
         self.model = model
         self.endpoint = endpoint
         self.n_shots = n_shots
@@ -63,6 +64,7 @@ class LLMModel(RelationModel):
         self.prompt_version = prompt_version
         self.use_known_places = use_known_places
         self.resolve_nil = resolve_nil
+        self.cot = cot
         self.cache_path = cache_path or (cfg.CACHE_DIR / f"llm_{model.replace(':', '_')}.json")
         self._cache = None
         self.shots = []
@@ -85,9 +87,12 @@ class LLMModel(RelationModel):
         return person_place_labels(qid, lang)
 
     def fit(self, train, dev=None):
-        # balanced few-shot exemplars: a couple per at-class
+        # balanced few-shot exemplars: a couple per at-class, preferring GOLD
+        # (human newspapers) over silver (sandbox LLM labels)
+        gold = [p for p in train if getattr(p, "is_gold", False)]
+        pool = gold if gold else train
         by = defaultdict(list)
-        for p in train:
+        for p in pool:
             by[p.gold_at].append(p)
         self.shots = []
         for lab in cfg.AT_LABELS:
@@ -96,7 +101,15 @@ class LLMModel(RelationModel):
 
     def _messages(self, pair):
         pf = self._places if self.use_known_places else None
-        msgs = [{"role": "system", "content": INSTRUCTION}]
+        instr = INSTRUCTION
+        if self.cot:
+            instr = INSTRUCTION.replace(
+                "Answer with ONLY a JSON object like {\"at\": \"PROBABLE\", \"isAt\": \"FALSE\"}.",
+                "Reason briefly step by step: (1) what is known about the person and "
+                "their places, (2) does the text or knowledge put them at this place "
+                "ever (at), (3) does THIS text show them there now (isAt). Then on the "
+                "FINAL line output ONLY the JSON, e.g. {\"at\": \"PROBABLE\", \"isAt\": \"FALSE\"}.")
+        msgs = [{"role": "system", "content": instr}]
         for s in self.shots:
             msgs.append({"role": "user", "content": _block(s, self._gloss, pf, max_ctx=400)})
             msgs.append({"role": "assistant",
@@ -115,10 +128,10 @@ class LLMModel(RelationModel):
     @staticmethod
     def _parse(text):
         at, isat = "FALSE", "FALSE"
-        m = re.search(r'\{[^}]*\}', text, re.S)
-        if m:
+        ms = re.findall(r'\{[^{}]*\}', text, re.S)   # last JSON (after any CoT reasoning)
+        if ms:
             try:
-                d = json.loads(m.group(0))
+                d = json.loads(ms[-1])
                 at = cfg.norm_label(str(d.get("at", "")).upper(), "at")
                 isat = cfg.norm_label(str(d.get("isAt", d.get("isat", ""))).upper(), "isAt")
                 return at, isat
