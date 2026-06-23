@@ -205,7 +205,7 @@ class LLMModel(RelationModel):
                         self._save_cache()
                         print(f"[llm] {done[0]}/{len(todo)}", flush=True)
 
-            workers = 2 if self.backend == "kbench" else 1   # proxy rate-limits bursts -> low concurrency
+            workers = 1   # kbench proxy rate-limits concurrent bursts -> sequential
             with ThreadPoolExecutor(max_workers=workers) as ex:
                 list(ex.map(work, todo))
             self._save_cache()
