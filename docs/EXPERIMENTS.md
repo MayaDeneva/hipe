@@ -403,9 +403,15 @@ routing hurts (0.6265); only the learned combiner wins.** The **`isAt` soft meta
 0.733→0.753 by feeding the LLM's `at` *into* `isAt` (the forward at→isAt
 dependency; `at=FALSE`⇒`isAt=FALSE`, `at=TRUE`→`isAt` likelier).
 
-**CAVEAT:** in-domain OOF only. Official impresso-test validation pending (needs
-Claude on `hipe_prompts_official.json` + transformer official probas, then fit the
-metas on all in-domain and apply). A 7B local qwen (Ollama) maxed grounded-`at` at
+**Simpler & better:** dropping the un-fine-tuned large-alone and feeding the meta
+the **curriculum run's own `at`-proba** (better-calibrated) lifts it further to
+**0.7214** (at 0.690, isAt 0.753) — and needs only **one** transformer run (the
+curriculum, which has both probas), so the official validation is a single Kaggle
+GPU job (`mayadeneva/hipe-official-curr`) + the Claude official-test run.
+
+**CAVEAT:** in-domain OOF only. Official impresso-test validation pending (638
+pairs): Claude on `hipe_prompts_official.json` + the curriculum official probas,
+then fit the metas on all in-domain and apply. A 7B local qwen (Ollama) maxed grounded-`at` at
 0.471 < 0.507 across prompt variants (KB known-places + world-knowledge + gold
 few-shot helped; CoT mixed) — model scale, not prompt, is what moved it.
 
