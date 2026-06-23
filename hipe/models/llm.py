@@ -134,6 +134,16 @@ class LLMModel(RelationModel):
     def _kbench_llm(self):
         import kaggle_benchmarks as kbench
         if self._kb_llm is None:
+            # the Rich console hangs when stdout is not a TTY (backgrounded) -> quiet
+            for fn in ("disable_console_mode", "disable_tqdm", "disable_interactive_mode"):
+                try:
+                    getattr(kbench.config, fn)()
+                except Exception:
+                    pass
+            try:
+                kbench.config.console_quiet = True
+            except Exception:
+                pass
             try:                              # llms[...] indexing is flaky per-process;
                 self._kb_llm = kbench.llms[self.kbench_model] if self.kbench_model else kbench.llm
             except Exception:                 # fall back to the proxy default (LLM_DEFAULT)
