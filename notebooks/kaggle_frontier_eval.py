@@ -35,24 +35,37 @@ P = make_dataclass("P", [("at", str), ("isAt", str)])
 llm = kbench.llms[MODEL]
 out = json.load(open(OUT)) if os.path.exists(OUT) else {}
 
+n = len(rows)
+print(f"=== {MODEL} | {n} pairs | {len(out)} already done ===", flush=True)
+t0 = time.time()
+errs = 0
 for i, r in enumerate(rows):
     if r["key"] in out:
         continue
+    ok = False
     for attempt in range(4):
         try:
             p = llm.prompt(r["prompt"], schema=P)
             out[r["key"]] = {"at": str(p.at), "isAt": str(p.isAt)}
+            ok = True
             break
-        except Exception:
+        except Exception as e:
+            last = str(e)[:60]
             time.sleep(1.5 * (attempt + 1))   # backoff for transient 429/503
-    else:
+    if not ok:
         out[r["key"]] = {"at": "FALSE", "isAt": "FALSE"}
-    if i % 25 == 0:
-        json.dump(out, open(OUT, "w"))
-        print(f"{i}/{len(rows)}", flush=True)
+        errs += 1
+        print(f"  ! pair {i} failed after retries: {last}", flush=True)
+    done = i + 1
+    if done % 10 == 0 or done == n:
+        el = time.time() - t0
+        eta = (n - done) * (el / done)
+        json.dump(out, open(OUT, "w"))                     # checkpoint
+        print(f"[{done}/{n}] {el:.0f}s elapsed | ~{el/done:.1f}s/pair | "
+              f"ETA {eta/60:.1f}min | errors={errs}", flush=True)
 
 json.dump(out, open(OUT, "w"))
-print("DONE", len(out))
+print(f"DONE {len(out)}/{n}  ({errs} errors)  in {(time.time()-t0)/60:.1f} min", flush=True)
 
 # quick sanity: raw at-accuracy vs gold (the macro-recall ensemble is computed locally)
 def nrm(s):
