@@ -482,6 +482,11 @@ v2) gives overall-test-a 0.7097 vs original 0.7102 (−0.0005; OOF A/B agreed at
 stronger transformer is redundant — the ensemble was already at the joint-knowledge
 ceiling. So augmentation is a standalone/robustness win, not an ensemble win; the
 0.7102 rank-2 headline stands, now *known* (not assumed) to be augmentation-proof.
+**BUT on surprise-fr the augmented ensemble DOES help: 0.5125→0.5333 (rank 11→10)**
+— `at`-meta + raw augmented `isAt`. The lesson: improving the base model lifts the
+ensemble *only where the ensemble has headroom*. In-dist it's saturated (Claude
+covers the gaps); OOD, Claude *also* over-predicts `isAt`, so the more-robust
+augmented transformer is no longer redundant and adds real signal.
 
 **#1 lighter fine-tuning — negative result that CONFIRMS the §14a diagnosis.**
 impresso `overall-test-a` 0.5907→0.5866, surprise-fr 0.4639→0.4516 — neutral
