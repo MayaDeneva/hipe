@@ -463,7 +463,18 @@ we read the trade directly.
 |---|---|---|---|---|
 | 4 | **Leave-one-language-out** (train de+en, test fr) | `configs/lolo_fr.yaml` | does fr collapse without fr training? | **DONE: fr 0.6085→0.5099** |
 | 1 | **Lighter fine-tuning** (dropout .1→.3, wd .01→.05, ft_epochs 3→1) | `configs/lite_curriculum.yaml` | less impresso doubling-down → smaller OOD gap | **DONE: no help — impresso 0.587 (−.004), surprise 0.452 (−.012)** |
-| 2 | **OCR-noise augmentation** (noised gold copies, entities protected) | `configs/augment_curriculum.yaml`, `hipe/data/augment.py` | learn meaning over impresso OCR/surface cues → better surprise-fr | *running (`hipe-lolo-fr` v2)* |
+| 2 | **OCR-noise augmentation** (noised gold copies, entities protected) | `configs/augment_curriculum.yaml`, `hipe/data/augment.py` | learn meaning over impresso OCR/surface cues → better surprise-fr | **DONE: HELPS BOTH — impresso 0.6068 (+.016), surprise 0.4744 (+.011)** |
+
+**#2 augmentation — the WINNER, and the contrast with #1 is the lesson.** +2,136
+OCR-noised gold copies (entities protected) lifted impresso `overall-test-a`
+0.5907→**0.6068** (de 0.576→0.607, fr 0.609→0.631) AND surprise 0.4639→**0.4744**
+(`isAt` 0.44→0.47). The first lever to improve in-dist AND OOD together.
+**Why #2 works and #1 didn't:** #1 used *less* capacity (regularization) — but the
+problem was never overfitting-from-capacity; it was a **narrow training
+distribution**. #2 *broadens* that distribution synthetically, forcing the encoder
+to learn meaning over impresso surface/OCR cues. **Answer to "what besides
+impresso": not more data — more *diverse* data, manufacturable from impresso.**
+Augmentation + calibration both worked (legitimately); regularization didn't.
 
 **#1 lighter fine-tuning — negative result that CONFIRMS the §14a diagnosis.**
 impresso `overall-test-a` 0.5907→0.5866, surprise-fr 0.4639→0.4516 — neutral
