@@ -461,13 +461,19 @@ we read the trade directly.
 
 | # | experiment | config / code | hypothesis | result |
 |---|---|---|---|---|
-| 4 | **Leave-one-language-out** (train de+en, test fr) | `configs/lolo_fr.yaml` | if fr `isAt` collapses like surprise, the encoder learns surface cues not structure | *running (`hipe-lolo-fr`)* |
-| 1 | **Lighter fine-tuning** (dropout .1→.3, wd .01→.05, ft_epochs 3→1) | `configs/lite_curriculum.yaml` | less impresso doubling-down → smaller OOD gap, small in-dist cost | *queued* |
-| 2 | **OCR-noise augmentation** (noised gold copies, entities protected) | `configs/augment_curriculum.yaml`, `hipe/data/augment.py` | learn meaning over impresso OCR/surface cues → better surprise-fr | *queued* |
+| 4 | **Leave-one-language-out** (train de+en, test fr) | `configs/lolo_fr.yaml` | does fr collapse without fr training? | **DONE: fr 0.6085→0.5099** |
+| 1 | **Lighter fine-tuning** (dropout .1→.3, wd .01→.05, ft_epochs 3→1) | `configs/lite_curriculum.yaml` | less impresso doubling-down → smaller OOD gap, small in-dist cost | *running (`hipe-lite-ft`)* |
+| 2 | **OCR-noise augmentation** (noised gold copies, entities protected) | `configs/augment_curriculum.yaml`, `hipe/data/augment.py` | learn meaning over impresso OCR/surface cues → better surprise-fr | *queued (Kaggle 2-GPU cap)* |
 
-Preview (meta-only, confounded — transformer probas still all-language): a meta
-trained on de+en applied to in-domain fr scores 0.564 (at 0.502, isAt 0.627),
-i.e. even the combiner is partly language-specific. Clean encoder LOLO pending.
+**#4 LOLO result — two *different* brittlenesses, one per shift type:** training on
+de+en and testing fr gives **`at` 0.5625→0.4011 (−0.16), `isAt` 0.6546→0.6187
+(−0.04)**, global 0.6085→0.5099. The *opposite* profile to surprise-fr (where
+`isAt` collapsed and `at` held). Synthesis: **`at` is language-dependent but
+domain-robust** (needs in-language training — it's entity/place knowledge — but
+transfers across text styles); **`isAt` is language-robust but domain-brittle**
+(XLM-R shares syntax/context across languages, but it overfits impresso's specific
+phrasing). So the two failure modes are orthogonal: cross-language hurts `at`,
+cross-domain hurts `isAt`. (Meta-only preview, confounded: de+en-meta→fr 0.564.)
 
 Baselines to beat: in-dist `overall-test-a` 0.7102 (rank 2), surprise-fr 0.5125
 (rank 11, via `at`-meta + raw transformer `isAt`).
