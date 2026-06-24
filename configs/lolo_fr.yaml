@@ -1,0 +1,22 @@
+# Leave-one-language-out robustness probe: train on de+en ONLY, predict on the
+# French impresso-test. Compare its fr score to the all-languages transformer
+# (0.6085) — measures whether the encoder transfers across distributions using
+# only impresso (a free proxy for the surprise-fr OOD gap).
+data:
+  train:
+    - data/raw/HIPE-2026-data/data/sandbox/en-train.jsonl
+    - data/raw/HIPE-2026-data/data/sandbox/de-train.jsonl
+  gold_train:
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-train-en.jsonl
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-train-de.jsonl
+  dev:
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-test-fr.jsonl
+consistency: soft
+model:
+  name: xlmr
+  model_name: xlm-roberta-large
+  epochs: 8
+  max_length: 192
+  batch_size: 8
+  lr: 1.0e-5
+  curriculum: true
