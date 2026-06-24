@@ -462,8 +462,16 @@ we read the trade directly.
 | # | experiment | config / code | hypothesis | result |
 |---|---|---|---|---|
 | 4 | **Leave-one-language-out** (train de+en, test fr) | `configs/lolo_fr.yaml` | does fr collapse without fr training? | **DONE: fr 0.6085→0.5099** |
-| 1 | **Lighter fine-tuning** (dropout .1→.3, wd .01→.05, ft_epochs 3→1) | `configs/lite_curriculum.yaml` | less impresso doubling-down → smaller OOD gap, small in-dist cost | *running (`hipe-lite-ft`)* |
-| 2 | **OCR-noise augmentation** (noised gold copies, entities protected) | `configs/augment_curriculum.yaml`, `hipe/data/augment.py` | learn meaning over impresso OCR/surface cues → better surprise-fr | *queued (Kaggle 2-GPU cap)* |
+| 1 | **Lighter fine-tuning** (dropout .1→.3, wd .01→.05, ft_epochs 3→1) | `configs/lite_curriculum.yaml` | less impresso doubling-down → smaller OOD gap | **DONE: no help — impresso 0.587 (−.004), surprise 0.452 (−.012)** |
+| 2 | **OCR-noise augmentation** (noised gold copies, entities protected) | `configs/augment_curriculum.yaml`, `hipe/data/augment.py` | learn meaning over impresso OCR/surface cues → better surprise-fr | *running (`hipe-lolo-fr` v2)* |
+
+**#1 lighter fine-tuning — negative result that CONFIRMS the §14a diagnosis.**
+impresso `overall-test-a` 0.5907→0.5866, surprise-fr 0.4639→0.4516 — neutral
+in-dist, slightly worse OOD; surprise `isAt` stuck at 0.424 (still over-predicting
+TRUE). Regularization is the tool for *overfitting*; the surprise gap is a
+*base-rate/prior-shift* artifact (§14a), so lighter FT can't touch it. Rules out
+"just regularize more" and points at calibration. (Per-lang in-dist was mixed: de
+0.576→0.642 up, en/fr down — net flat.)
 
 **#4 LOLO result — two *different* brittlenesses, one per shift type:** training on
 de+en and testing fr gives **`at` 0.5625→0.4011 (−0.16), `isAt` 0.6546→0.6187
