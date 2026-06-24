@@ -432,7 +432,18 @@ baseline 0.582. Top teams run 100B+ models; we used a 560M transformer + Claude
 Haiku 4.5. Honest: meta never saw the test, Claude is a real model (not the
 `llm_lookup` leakage). Cheap-alternative metas don't beat LogReg stacking (RF
 0.706, GBM 0.631, weighted-blend 0.647 in-domain — trees overfit 401 pts, blend
-can't learn the PROBABLE recovery). A 7B local qwen (Ollama) maxed grounded-`at` at
+can't learn the PROBABLE recovery).
+
+**SURPRISE-test-fr bonus (480 fr, out-of-distribution): rank 11/18, 0.5125** (vs
+transformer-only 0.4639, rank 13). Best variant = `at`←meta + **raw transformer
+`isAt`** (the `isAt` stacking OVERFITS impresso and *hurts* here: bidirectional
+0.491 < raw-isAt 0.5125). Diagnosis: only the `at` LLM-help generalizes (+0.097 —
+world knowledge is distribution-independent); the transformer's `isAt` collapses
+0.665→0.44 out-of-domain and the impresso-tuned `isAt`-meta doesn't transfer.
+team8 leads surprise at 0.816 (was rank 2 impresso) — built for robustness; we are
+impresso-optimized (in-domain training = impresso). Lesson: the LLM contributes a
+**transferable** `at` signal, the transformer+stacking a strong but
+**distribution-specific** `isAt`. A 7B local qwen (Ollama) maxed grounded-`at` at
 0.471 < 0.507 across prompt variants (KB known-places + world-knowledge + gold
 few-shot helped; CoT mixed) — model scale, not prompt, is what moved it.
 
