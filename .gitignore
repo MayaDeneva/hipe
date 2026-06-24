@@ -28,3 +28,5 @@ hipe_prompts_official.json
 /*.task.json
 /example_task.py
 /kaggle_benchmarks_reference.md
+hipe_prompts_surprise.json
+hipe_preds_surprise.json

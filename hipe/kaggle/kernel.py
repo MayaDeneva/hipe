@@ -33,6 +33,14 @@ subprocess.run([sys.executable, "-m", "pip", "install", "-c", con, CODE + "[ml]"
 subprocess.run(["git", "clone", "{data_repo}", "data/raw/HIPE-2026-data"], check=True)
 subprocess.run(["git", "-C", "data/raw/HIPE-2026-data", "checkout", "{pinned}"], check=True)
 
+# 4b. inject any extra labeled eval files committed in the repo (e.g. surprise-test-fr,
+#     which is not at the pinned data commit) so configs can predict/score on them
+import glob, shutil
+_dest = "data/raw/HIPE-2026-data/data/newspapers/v1.0"
+os.makedirs(_dest, exist_ok=True)
+for _f in glob.glob(CODE + "/data/inject/*.jsonl"):
+    shutil.copy(_f, _dest); print("injected", _f)
+
 # 5. run the harness; outputs (run folder + leaderboard) land in /kaggle/working/runs
 os.environ["HIPE_RUNS_DIR"] = WORK + "/runs"
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"   # Kaggle renders tqdm badly
