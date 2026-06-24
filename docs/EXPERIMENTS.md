@@ -417,15 +417,22 @@ preds). `scripts/official_ensemble.py`:
 | `overall-test-a` (mean per-lang) | en | de | fr | overall |
 |---|---|---|---|---|
 | transformer-only | 0.5878 | 0.5759 | 0.6085 | **0.5907** |
-| **soft ensemble** | 0.6018 | **0.7014** | **0.7016** | **0.6683** |
+| soft ensemble (at←meta, isAt←meta) | 0.6018 | 0.7014 | 0.7016 | 0.6683 |
+| **+ bidirectional cross-help** | **0.6662** | **0.7188** | **0.7457** | **0.7102** |
 
-**+0.078 official** (de +0.126, fr +0.093). `at` 0.522→0.610 with PROBABLE recall
-0.435 (transformer's wall was ~0) — the LLM cracks PROBABLE out-of-domain too.
-**This moves us from ~rank 13 (just above the 0.5818 baseline) to RANK 4 of 18**
-on the official board (team13 0.748, team8 0.700, team12 0.688, **us 0.668**,
-team1 0.667, …) — top-3 run 100B+ models; we used a 560M transformer + Claude
+`at` 0.522→0.610 (PROBABLE recall 0.435 vs the transformer's ~0 wall — the LLM
+cracks PROBABLE out-of-domain). **BIDIRECTIONAL cross-help** (the user's idea):
+make the `isAt`-meta blend BOTH models' `isAt` (`[transformer isAt-proba, Claude
+isAt, Claude at, transformer at-proba, KB]`) — the transformer helps Claude's
+`isAt` while Claude helps the transformer's `at`. Their `isAt` errors are
+complementary, so `isAt` 0.665→**0.812** official (in-domain OOF 0.871 transferred
+cleanly), lifting overall **0.6683→0.7102**. **This is RANK 2 of 18** — only
+team13 (0.748) ahead; above team8 (0.700), team12 (0.688), team1 (0.667), …
+baseline 0.582. Top teams run 100B+ models; we used a 560M transformer + Claude
 Haiku 4.5. Honest: meta never saw the test, Claude is a real model (not the
-`llm_lookup` leakage). A 7B local qwen (Ollama) maxed grounded-`at` at
+`llm_lookup` leakage). Cheap-alternative metas don't beat LogReg stacking (RF
+0.706, GBM 0.631, weighted-blend 0.647 in-domain — trees overfit 401 pts, blend
+can't learn the PROBABLE recovery). A 7B local qwen (Ollama) maxed grounded-`at` at
 0.471 < 0.507 across prompt variants (KB known-places + world-knowledge + gold
 few-shot helped; CoT mixed) — model scale, not prompt, is what moved it.
 
