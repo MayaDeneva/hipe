@@ -478,6 +478,34 @@ cross-domain hurts `isAt`. (Meta-only preview, confounded: de+en-meta→fr 0.564
 Baselines to beat: in-dist `overall-test-a` 0.7102 (rank 2), surprise-fr 0.5125
 (rank 11, via `at`-meta + raw transformer `isAt`).
 
+### 14a. What surprise-fr actually IS — and the `isAt` base-rate artifact
+
+Empirical comparison (gold references):
+
+| | impresso-fr | surprise-fr |
+|---|---|---|
+| genre | 20th-c **newspapers** (sports/news) | 18th-c **literary history** (*Voltaire, Histoire Générale*) |
+| median year | 1938 | **1756** |
+| NIL entity rate | 70% | 87% |
+| `isAt` gold | FALSE 157 / **TRUE 81** (34%) | **FALSE 480 / TRUE 0** |
+
+Two shifts: (1) a real **genre+era** shift (archaic literary French vs modern
+newspaper French) that hurts `at`/entity recognition; (2) the `isAt` "collapse" is
+mostly a **base-rate artifact** — surprise `isAt` is **degenerate (all FALSE)**
+because historical narrative describes *relations*, not physical presence-now. Our
+model imported impresso's **34%-TRUE prior** and over-predicted TRUE (every one
+wrong), so `isAt`→0.44. **Proof:** forcing `isAt`=all-FALSE scores `isAt`=1.000,
+global **0.8019** (would be ~rank 2 on surprise) — but that *exploits* the
+degenerate gold (you can't know it's all-FALSE at test time), so we do NOT claim
+it. Even Claude over-predicted (isAt TRUE 117/480), so both models carry the prior.
+
+**The legitimate lesson (future work):** the `isAt` gap is largely a **calibration
+/ prior-shift** problem, not a "can't read the language" problem. A model whose
+`isAt` is driven by the *text evidence* rather than the impresso base-rate (higher
+TRUE threshold / class-prior correction, chosen WITHOUT peeking at the test) would
+naturally output mostly-FALSE on historical narrative and recover much of the gap
+*honestly*. That's a sharper future-work direction than "train on more data."
+
 ---
 
 *Reproducibility:* every run is recorded in `runs/leaderboard.csv`; configs in
