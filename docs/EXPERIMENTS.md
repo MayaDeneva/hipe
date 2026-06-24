@@ -475,6 +475,13 @@ distribution**. #2 *broadens* that distribution synthetically, forcing the encod
 to learn meaning over impresso surface/OCR cues. **Answer to "what besides
 impresso": not more data — more *diverse* data, manufacturable from impresso.**
 Augmentation + calibration both worked (legitimately); regularization didn't.
+**BUT augmentation does NOT help the ENSEMBLE** — refitting the bidirectional metas
+on the augmented model's clean 401 probas (legitimate fit-on-401, `hipe-surprise-fr`
+v2) gives overall-test-a 0.7097 vs original 0.7102 (−0.0005; OOF A/B agreed at
++0.0016). The meta + Claude already patched the transformer's weak cells, so a
+stronger transformer is redundant — the ensemble was already at the joint-knowledge
+ceiling. So augmentation is a standalone/robustness win, not an ensemble win; the
+0.7102 rank-2 headline stands, now *known* (not assumed) to be augmentation-proof.
 
 **#1 lighter fine-tuning — negative result that CONFIRMS the §14a diagnosis.**
 impresso `overall-test-a` 0.5907→0.5866, surprise-fr 0.4639→0.4516 — neutral
