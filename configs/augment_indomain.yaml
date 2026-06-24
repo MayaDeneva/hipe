@@ -1,0 +1,26 @@
+# Bonus: AUGMENTED transformer in the IN-DOMAIN config (401 held out of training),
+# so it produces clean, non-leaked probabilities on the 401 holdout -> lets the
+# ensemble meta be fit on the augmented model (legitimate fit-on-401 protocol).
+# = xlmr_large_curriculum.yaml + OCR-noise augmentation.
+data:
+  train:
+    - data/raw/HIPE-2026-data/data/sandbox/en-train.jsonl
+    - data/raw/HIPE-2026-data/data/sandbox/de-train.jsonl
+    - data/raw/HIPE-2026-data/data/sandbox/fr-train.jsonl
+  dev:
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-train-en.jsonl
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-train-de.jsonl
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-train-fr.jsonl
+  dev_holdout_frac: 0.3
+  dev_holdout_seed: 0
+consistency: soft
+model:
+  name: xlmr
+  model_name: xlm-roberta-large
+  epochs: 8
+  max_length: 192
+  batch_size: 8
+  lr: 1.0e-5
+  curriculum: true
+  augment: 0.06
+  n_aug: 2
