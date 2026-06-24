@@ -30,17 +30,17 @@ class Pred:
     isAt: str
 
 
-# set to "official" (638 impresso test) or "indomain" (401 holdout)
-WHICH = "official"
+# which test set: "official" (638 impresso), "surprise" (480 surprise-fr), "indomain" (401)
+WHICH = "surprise"
+_EXPECT = {"official": 638, "surprise": 480, "indomain": 401}
+_FILE = {"official": "hipe_prompts_official.json", "surprise": "hipe_prompts_surprise.json",
+         "indomain": "hipe_prompts.json"}
 
 
 def find_prompts():
-    """Locate the prompts file; prefer the OFFICIAL 638-pair set."""
-    pats = (["/kaggle/input/**/hipe_prompts_official.json"] if WHICH == "official" else []) + [
-        "/kaggle/input/**/hipe_prompts.json",
-        "/kaggle/input/**/hipe-prompts*.json",
-        "/kaggle/input/**/*.json",
-        "./hipe_prompts_official.json", "./hipe_prompts.json"]
+    """Locate the prompts file for the chosen set, then any prompts json."""
+    pats = [f"/kaggle/input/**/{_FILE[WHICH]}", f"./{_FILE[WHICH]}",
+            "/kaggle/input/**/hipe_prompts*.json", "/kaggle/input/**/*.json"]
     for pat in pats:
         hits = glob.glob(pat, recursive=True)
         if hits:
@@ -52,9 +52,9 @@ def find_prompts():
 
 INPUT = find_prompts()
 rows = json.load(open(INPUT))
-print(f"using prompts file: {INPUT}  ({len(rows)} pairs)", flush=True)
-assert len(rows) == 638 or WHICH != "official", \
-    f"expected 638 official pairs, got {len(rows)} — wrong dataset attached?"
+print(f"using prompts file: {INPUT}  ({len(rows)} pairs, WHICH={WHICH})", flush=True)
+assert len(rows) == _EXPECT[WHICH], \
+    f"expected {_EXPECT[WHICH]} {WHICH} pairs, got {len(rows)} — wrong dataset attached?"
 DATA = pd.DataFrame(rows)            # columns: key, prompt, gold_at, gold_isAt
 _done = [0]
 

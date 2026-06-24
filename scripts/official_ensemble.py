@@ -15,10 +15,11 @@ from hipe.eval.scorer import score_files
 from hipe.models.base import apply_consistency
 from hipe import config as cfg
 
-IN_CURR = "runs/2026-06-23_075753_xlmr_439f756d"                              # in-domain curriculum
-OFF_CURR = "runs/official_curr_dl/runs/2026-06-23_175509_xlmr_5934527d"       # official curriculum
+IN_CURR = "runs/2026-06-23_075753_xlmr_439f756d"                             # in-domain curriculum
 IN_LLM = "hipe_preds.json"                                                   # Claude in-domain
-OFF_LLM = sys.argv[1] if len(sys.argv) > 1 else "hipe_preds_official.json"   # Claude official
+OFF_LLM = sys.argv[1] if len(sys.argv) > 1 else "hipe_preds_official.json"   # Claude test preds
+OFF_CURR = sys.argv[2] if len(sys.argv) > 2 else \
+    "runs/official_curr_dl/runs/2026-06-23_175509_xlmr_5934527d"             # test curriculum run dir
 AT, IS = cfg.AT_LABELS, cfg.ISAT_LABELS
 
 
