@@ -32,6 +32,7 @@ def load(curr_dir, llm_path):
     keys = [k(p) for p in gold]
     raw = json.load(open(llm_path))
     llm = {k(p): cfg.norm_label(str(raw.get(jk(p), {}).get("at", "FALSE")).upper(), "at") for p in gold}
+    lli = {k(p): cfg.norm_label(str(raw.get(jk(p), {}).get("isAt", "FALSE")).upper(), "isAt") for p in gold}
     kb = {k(p): int(bool(p.person.qid and p.place.qid)) for p in gold}
     lang = {k(p): p.language for p in gold}
     cap, isp = {}, {}
@@ -39,12 +40,15 @@ def load(curr_dir, llm_path):
         j = json.loads(line); kk = (j["doc_id"], j["pair_key"])
         cap[kk] = j["at_proba"]; isp[kk] = j["isAt_proba"]
     ga = {k(p): p.gold_at for p in gold}; gi = {k(p): p.gold_isat for p in gold}
-    return dict(gold=gold, keys=keys, llm=llm, kb=kb, lang=lang, cap=cap, isp=isp, ga=ga, gi=gi)
+    return dict(gold=gold, keys=keys, llm=llm, lli=lli, kb=kb, lang=lang, cap=cap, isp=isp, ga=ga, gi=gi)
 
 
 def Xat(d, keys): return np.array([[d["cap"].get(x, {}).get(c, 0.) for c in AT] + oh(d["llm"][x], AT) + [d["kb"][x]] for x in keys])
-def Xis(d, keys): return np.array([[d["isp"].get(x, {}).get(c, 0.) for c in IS] + oh(d["llm"][x], AT)
-                                   + [d["cap"].get(x, {}).get(c, 0.) for c in AT] + [d["kb"][x]] for x in keys])
+# isAt meta: transformer isAt-proba + Claude isAt + Claude at + transformer at-proba
+# (the user's bidirectional cross-help: transformer helps Claude's isAt, Claude helps at)
+def Xis(d, keys): return np.array([[d["isp"].get(x, {}).get(c, 0.) for c in IS] + oh(d["lli"][x], IS)
+                                   + oh(d["llm"][x], AT) + [d["cap"].get(x, {}).get(c, 0.) for c in AT]
+                                   + [d["kb"][x]] for x in keys])
 
 
 tr = load(IN_CURR, IN_LLM)
