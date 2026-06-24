@@ -103,7 +103,8 @@ class XLMRModel(RelationModel):
                  lr=2e-5, max_length=192, dropout=0.1, weight_decay=0.01,
                  marker_scheme="plain", add_date=False, add_kb=False,
                  dual_scope=False, curriculum=False, ft_lr_mult=0.3, ft_epochs=3,
-                 val_frac=0.15, patience=2, max_train=None, seed=0):
+                 val_frac=0.15, patience=2, max_train=None, seed=0,
+                 augment=0.0, n_aug=1):
         self.model_name = model_name
         self.epochs = epochs
         self.batch_size = batch_size
@@ -122,6 +123,8 @@ class XLMRModel(RelationModel):
         self.patience = patience
         self.max_train = max_train
         self.seed = seed
+        self.augment = augment              # OCR-noise aug prob (0 = off); robustness exp #2
+        self.n_aug = n_aug
         self.tok = None
         self.module = None
         self._device = None
@@ -151,16 +154,26 @@ class XLMRModel(RelationModel):
             tr, va = split_by_document(pairs, dev_frac=self.val_frac, seed=self.seed)
             return (tr, va) if (tr and va) else (pairs, [])
 
+        def _aug(tr):
+            if self.augment > 0:
+                from hipe.data.augment import augment_pairs
+                a = augment_pairs(tr, self.n_aug, self.augment, self.seed)
+                print(f"[xlmr] augment: +{len(a)} OCR-noised copies", flush=True)
+                return list(tr) + a
+            return tr
+
         if self.curriculum:
             silver = [p for p in train if not p.is_gold]
             gold = [p for p in train if p.is_gold]
             print(f"[xlmr] curriculum: stage1 silver={len(silver)} stage2 gold={len(gold)}", flush=True)
             self._train_phase(*_split(silver or train), self.lr, self.epochs, self.patience, "stage1")
             if gold:
-                self._train_phase(*_split(gold), self.lr * self.ft_lr_mult,
+                g_tr, g_va = _split(gold)
+                self._train_phase(_aug(g_tr), g_va, self.lr * self.ft_lr_mult,
                                   self.ft_epochs, 1, "stage2")
         else:
-            self._train_phase(*_split(train), self.lr, self.epochs, self.patience, "")
+            t_tr, t_va = _split(train)
+            self._train_phase(_aug(t_tr), t_va, self.lr, self.epochs, self.patience, "")
 
     def _train_phase(self, tr, va, lr, epochs, patience, tag):
         import copy

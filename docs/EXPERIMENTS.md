@@ -449,6 +449,31 @@ few-shot helped; CoT mixed) — model scale, not prompt, is what moved it.
 
 ---
 
+## 14. Generalization / robustness experiments (2026-06-24)
+
+**Motivation.** §13 surprise-test-fr exposed a gap: rank 2 in-distribution
+(impresso) but rank 11 out-of-distribution (surprise-fr). Diagnosis — our pipeline
+is impresso-optimized; the transformer's `isAt` collapsed 0.665→0.44 OOD and the
+`isAt` stacking overfit. Robust teams (team8 #1 on surprise) trained on the same
+impresso but generalized. These experiments test fixes **using only impresso**.
+Each predicts on impresso-test (in-dist) AND surprise-fr (OOD) where possible, so
+we read the trade directly.
+
+| # | experiment | config / code | hypothesis | result |
+|---|---|---|---|---|
+| 4 | **Leave-one-language-out** (train de+en, test fr) | `configs/lolo_fr.yaml` | if fr `isAt` collapses like surprise, the encoder learns surface cues not structure | *running (`hipe-lolo-fr`)* |
+| 1 | **Lighter fine-tuning** (dropout .1→.3, wd .01→.05, ft_epochs 3→1) | `configs/lite_curriculum.yaml` | less impresso doubling-down → smaller OOD gap, small in-dist cost | *queued* |
+| 2 | **OCR-noise augmentation** (noised gold copies, entities protected) | `configs/augment_curriculum.yaml`, `hipe/data/augment.py` | learn meaning over impresso OCR/surface cues → better surprise-fr | *queued* |
+
+Preview (meta-only, confounded — transformer probas still all-language): a meta
+trained on de+en applied to in-domain fr scores 0.564 (at 0.502, isAt 0.627),
+i.e. even the combiner is partly language-specific. Clean encoder LOLO pending.
+
+Baselines to beat: in-dist `overall-test-a` 0.7102 (rank 2), surprise-fr 0.5125
+(rank 11, via `at`-meta + raw transformer `isAt`).
+
+---
+
 *Reproducibility:* every run is recorded in `runs/leaderboard.csv`; configs in
 `configs/`; analysis in `notebooks/`. Data/eval go through the vendored official
 scorer.

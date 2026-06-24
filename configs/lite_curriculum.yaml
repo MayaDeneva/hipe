@@ -1,0 +1,30 @@
+# Experiment #1 — LIGHTER fine-tuning for robustness. Same curriculum, but more
+# regularization (dropout 0.1->0.3, weight_decay 0.01->0.05) and a shorter gold
+# stage (ft_epochs 3->1) so it doubles-down on impresso less. Predicts on BOTH
+# impresso-test (in-dist) AND surprise-fr (OOD) in one run -> measures the trade.
+data:
+  train:
+    - data/raw/HIPE-2026-data/data/sandbox/en-train.jsonl
+    - data/raw/HIPE-2026-data/data/sandbox/de-train.jsonl
+    - data/raw/HIPE-2026-data/data/sandbox/fr-train.jsonl
+  gold_train:
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-train-en.jsonl
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-train-de.jsonl
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-train-fr.jsonl
+  dev:
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-test-en.jsonl
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-test-de.jsonl
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-impresso-test-fr.jsonl
+    - data/raw/HIPE-2026-data/data/newspapers/v1.0/HIPE-2026-v1.0-surprise-test-fr.jsonl
+consistency: soft
+model:
+  name: xlmr
+  model_name: xlm-roberta-large
+  epochs: 8
+  max_length: 192
+  batch_size: 8
+  lr: 1.0e-5
+  curriculum: true
+  dropout: 0.3
+  weight_decay: 0.05
+  ft_epochs: 1
